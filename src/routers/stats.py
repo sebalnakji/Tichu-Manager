@@ -49,7 +49,8 @@ def get_leaderboard(
 ):
     """
     개인 순위 랭킹 조회
-    정렬 우선순위: 승수 > 승률 > 티츄 성공률 > 라지티츄 성공률
+    정렬 우선순위: 10경기 이상 > 승률 > 경기 수 > 승수 >
+    티츄 성공률 > 라지티츄 성공률
     """
     stats_list = StatsService.get_leaderboard(db, year)
 
@@ -69,7 +70,8 @@ def get_team_leaderboard(
 ):
     """
     팀 순위 랭킹 조회
-    정렬 우선순위: 승수 > 승률
+    정렬 우선순위: 10경기 이상 > 승률 > 경기 수 > 승수 >
+    티츄 성공률 > 라지티츄 성공률
     """
     stats_list = StatsService.get_team_leaderboard(db, year)
 

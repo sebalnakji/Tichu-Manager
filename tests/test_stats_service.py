@@ -106,3 +106,50 @@ def test_leaderboard_prioritizes_qualified_players_then_win_rate(db, player_ids)
     assert [stats.win_rate for stats in qualified] == [100.0, 100.0, 0.0, 0.0]
     assert [stats.total_games for stats in provisional] == [2, 2, 2, 2]
     assert [stats.win_rate for stats in provisional] == [100.0, 100.0, 0.0, 0.0]
+
+
+def test_team_leaderboard_prioritizes_qualified_teams_then_win_rate(
+    db,
+    player_ids,
+):
+    extras = [
+        Player(
+            name=f"team-extra-{index}",
+            code=f"team-extra-code-{index}",
+            profile_url="",
+        )
+        for index in range(1, 5)
+    ]
+    db.add_all(extras)
+    db.commit()
+
+    current_year = date.today().year
+    matches = [
+        Match(
+            play_date=date(current_year, 1, 1),
+            team_a_ids=player_ids[:2],
+            team_b_ids=player_ids[2:],
+            status="FINISHED",
+            winner_team="A",
+            rounds=[],
+        )
+        for _ in range(10)
+    ]
+    matches.extend(
+        Match(
+            play_date=date(current_year, 1, 2),
+            team_a_ids=[extras[0].id, extras[1].id],
+            team_b_ids=[extras[2].id, extras[3].id],
+            status="FINISHED",
+            winner_team="A",
+            rounds=[],
+        )
+        for _ in range(2)
+    )
+    db.add_all(matches)
+    db.commit()
+
+    leaderboard = StatsService.get_team_leaderboard(db, current_year)
+
+    assert [stats.total_games for stats in leaderboard] == [10, 10, 2, 2]
+    assert [stats.win_rate for stats in leaderboard] == [100.0, 0.0, 100.0, 0.0]

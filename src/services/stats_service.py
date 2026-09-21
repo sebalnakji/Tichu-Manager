@@ -419,7 +419,8 @@ class StatsService:
     ) -> List[TeamStats]:
         """
         팀 랭킹 조회
-        정렬 우선순위: 승수 > 승률
+        정렬 우선순위: 10경기 이상 > 승률 > 경기 수 > 승수 >
+        티츄 성공률 > 라지티츄 성공률
 
         Args:
             db: 데이터베이스 세션
@@ -463,11 +464,16 @@ class StatsService:
             if stats and stats.total_games > 0:  # 함께 게임한 기록이 있는 팀만
                 stats_list.append(stats)
 
-        # 정렬: 승수 > 승률
+        # 정렬: 10경기 이상 > 승률 > 경기 수 > 승수 >
+        # 티츄 성공률 > 라지티츄 성공률
         stats_list.sort(
             key=lambda x: (
-                -x.wins,  # 승수 내림차순
-                -x.win_rate,  # 승률 내림차순
+                -(x.total_games >= 10),
+                -x.win_rate,
+                -x.total_games,
+                -x.wins,
+                -x.tichu_success_rate,
+                -x.grand_success_rate,
             )
         )
 
@@ -480,7 +486,8 @@ class StatsService:
     ) -> List[PlayerStats]:
         """
         전체 플레이어 랭킹 조회
-        정렬 우선순위: 승수 > 승률 > 티츄 성공률 > 라지티츄 성공률
+        정렬 우선순위: 10경기 이상 > 승률 > 경기 수 > 승수 >
+        티츄 성공률 > 라지티츄 성공률
 
         Args:
             db: 데이터베이스 세션
@@ -495,7 +502,8 @@ class StatsService:
             if stats.total_games > 0
         ]
 
-        # 정렬: 승수 > 승률 > 티츄 성공률 > 라지티츄 성공률
+        # 정렬: 10경기 이상 > 승률 > 경기 수 > 승수 >
+        # 티츄 성공률 > 라지티츄 성공률
         stats_list.sort(
             key=lambda x: (
                 -(x.total_games >= 10),
