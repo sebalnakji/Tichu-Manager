@@ -14,6 +14,8 @@ from models.models import Match, Player, MatchStats
 from services.team_service import TeamService
 from services.stats_service import StatsService
 from services.score_service import ScoreService
+from services.history_service import HistoryService
+from dto.history import HistoryPageResponse, HistoryPlayerOption
 from dto.match import (
     TeamAssignment,
     MatchCreate,
@@ -183,6 +185,54 @@ def get_finished_matches(
         })
 
     return result
+
+
+def _parse_player_ids(raw: Optional[str]) -> List[int]:
+    """'3' 또는 '3,7' 형식. 1명=개인, 2명=팀."""
+    if not raw:
+        return []
+    try:
+        ids = list(dict.fromkeys(int(value) for value in raw.split(",") if value.strip()))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="player_ids는 숫자를 쉼표로 구분해야 합니다.",
+        ) from exc
+    if len(ids) > 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="player_ids는 1명(개인) 또는 2명(팀)이어야 합니다.",
+        )
+    return ids
+
+
+@router.get("/history", response_model=HistoryPageResponse)
+def get_match_history(
+    year: Optional[int] = Query(default=None, description="시즌 (생략 시 전체 기간)"),
+    player_ids: Optional[str] = Query(default=None, description="1명=개인, 2명=팀 (쉼표 구분)"),
+    before_date: Optional[date] = Query(default=None, description="이 날짜보다 이전 기록부터 (다음 페이지 커서)"),
+    db: Session = Depends(get_db),
+):
+    """
+    게임 기록: 경기가 있었던 날짜 3일치를 하루 단위로 조회
+    - 각 날짜에 그날 경기 전체와 하루 기록표(전적, 스몰/라지)를 포함
+    - player_ids 지정 + 첫 페이지면 시즌 요약 포함
+    """
+    return HistoryService.get_history_page(
+        db,
+        year=year,
+        player_ids=_parse_player_ids(player_ids),
+        before_date=before_date,
+    )
+
+
+@router.get("/history/players", response_model=List[HistoryPlayerOption])
+def get_match_history_players(
+    year: Optional[int] = Query(default=None, description="시즌 (생략 시 전체 기간)"),
+    db: Session = Depends(get_db),
+):
+    """게임 기록 사람 선택 줄: 시즌에 경기한 사람(경기 수 순) + 같은 팀을 했던 사람"""
+    return HistoryService.get_player_options(db, year)
 
 
 @router.get("/ongoing/{player_id}")
