@@ -417,7 +417,7 @@ def _record_edit_client(db):
     return TestClient(app)
 
 
-def _finished_match_with_rounds(db, player_ids, count=11):
+def _finished_match_with_rounds(db, player_ids, count=10):
     """매 라운드 A 100 : B 0, count=10이면 1000:0으로 종료."""
     match_id = create_match(db, player_ids)
     for number in range(1, count + 1):
@@ -548,3 +548,29 @@ def test_replace_rounds_rejects_unfinished_result_without_saving(
     assert persisted.score_a == 1000
     assert persisted.status == "FINISHED"
     assert persisted.winner_team == "A"
+
+
+def test_finished_match_rejects_new_round_without_saving(db, player_ids):
+    match_id = _finished_match_with_rounds(db, player_ids, count=10)
+
+    with pytest.raises(HTTPException) as exc_info:
+        add_round_score(match_id, round_request(number=11, team_a=50, team_b=50), db)
+
+    assert exc_info.value.status_code == 409
+    assert "이미 종료된 경기" in exc_info.value.detail
+    db.rollback()
+    persisted = db.query(Match).filter(Match.id == match_id).one()
+    assert len(persisted.rounds) == 10
+    assert (persisted.score_a, persisted.score_b) == (1000, 0)
+    assert persisted.status == "FINISHED"
+
+
+def test_finished_match_still_allows_editing_existing_round(db, player_ids):
+    match_id = _finished_match_with_rounds(db, player_ids, count=10)
+    tichu = RoundEvent(type="tichu", player_id=player_ids[0], success=True)
+
+    result = update_round_score(match_id, 10, round_request(events=[tichu]), db)
+
+    assert result.status == "FINISHED"
+    assert result.team_a_total_score == 1100
+    assert len(result.rounds) == 10

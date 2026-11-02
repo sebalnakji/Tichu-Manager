@@ -367,6 +367,16 @@ def add_round_score(
 
     logger.info(f"라운드 저장 요청: match_id={match_id}, round={round_data.round_number}")
 
+    # 종료된 경기에는 새 라운드를 붙이지 않는다 (기존 라운드 수정만 허용)
+    is_existing_round = any(
+        r.get("round") == round_data.round_number for r in (match.rounds or [])
+    )
+    if match.status == "FINISHED" and not is_existing_round:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 종료된 경기입니다. 수정할 라운드의 [수정]을 눌러주세요.",
+        )
+
     event_data = [event.model_dump() for event in round_data.events]
     try:
         ScoreService.validate_round(

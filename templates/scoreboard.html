@@ -1012,7 +1012,19 @@
         signLabel.textContent = directState.sign === -1 ? '−' : '+';
     }
 
+    // 종료된 경기에 새 라운드를 붙이려는지 (기록 수정 모드는 화면에서만 바뀌므로 제외)
+    function isNewRoundOnFinishedMatch(roundNumber) {
+        return !IS_RECORD_EDIT
+            && matchData.status === 'FINISHED'
+            && !matchData.rounds.some(r => r.round_number === roundNumber);
+    }
+
+    const FINISHED_MATCH_MESSAGE = '이미 종료된 경기입니다.\n수정할 라운드의 [수정]을 눌러주세요.';
+
     async function saveDirectRound() {
+        if (isNewRoundOnFinishedMatch(directState.editingRound ?? nextRoundNumber())) {
+            alert(FINISHED_MATCH_MESSAGE); return;
+        }
         const scoreVal = document.getElementById('direct-score').value;
         if (!scoreVal) { alert('점수를 입력해주세요.'); return; }
 
@@ -1080,6 +1092,7 @@
     }
 
     async function saveRound() {
+        if (isNewRoundOnFinishedMatch(currentRoundNumber)) { alert(FINISHED_MATCH_MESSAGE); return; }
         const hasOT = events.some(e => e.type === 'one_two');
         const teamABase = hasOT ? 0 : parseInt(document.getElementById('slider-a').value);
         const teamBBase = hasOT ? 0 : parseInt(document.getElementById('slider-b').value);
