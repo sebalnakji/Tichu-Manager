@@ -139,6 +139,17 @@ async def leaderboard(request: Request):
     )
 
 
+@app.get("/history", response_class=HTMLResponse)
+async def history(request: Request):
+    """
+    게임 기록 화면 - 일별 / 개인 / 팀
+    """
+    return templates.TemplateResponse(
+        "history.html",
+        {"request": request, "title": "게임 기록"}
+    )
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """

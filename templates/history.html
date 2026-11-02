@@ -1,0 +1,638 @@
+{% extends "base.html" %}
+
+{% block title %}게임 기록 - Tichu Manager{% endblock %}
+
+{% block content %}
+<style>
+    /* 색상·탭·카드·배지는 랭킹(leaderboard.html)과 동일, 팀 색은 점수판·기록 수정 목록과 동일 */
+    :root {
+        --bg-main: #F4F4F8;
+        --bg-card: #FFFFFF;
+        --bg-card-hover: #F8F8FC;
+        --bg-card-sub: #F0F0F6;
+        --border: rgba(0, 0, 0, 0.07);
+        --text-primary: #0F0F1A;
+        --text-secondary: #6B7280;
+        --text-muted: #9CA3AF;
+        --text-label: #A0A0B0;
+        --accent: #4F46E5;
+        --accent-hover: #4338CA;
+        --divider: rgba(0,0,0,0.06);
+        --badge-default-bg: rgba(0,0,0,0.03);
+        --badge-default-border: rgba(0,0,0,0.08);
+        --badge-default-text: #6B7280;
+        --badge-tichu-bg: rgba(234,179,8,0.08);
+        --badge-tichu-border: rgba(234,179,8,0.2);
+        --badge-tichu-text: #A16207;
+        --badge-grand-bg: rgba(147,51,234,0.08);
+        --badge-grand-border: rgba(147,51,234,0.2);
+        --badge-grand-text: #7E22CE;
+        --tab-inactive: #9CA3AF;
+        --team-a-text: #3730A3;
+        --team-a-score: #4F46E5;
+        --team-b-text: #9F1239;
+        --team-b-score: #F43F5E;
+    }
+
+    [data-theme="dark"] {
+        --bg-main: #0F0F1A;
+        --bg-card: #1A1A2E;
+        --bg-card-hover: #212136;
+        --bg-card-sub: #0F0F1A;
+        --border: rgba(255, 255, 255, 0.08);
+        --text-primary: #FFFFFF;
+        --text-secondary: #9CA3AF;
+        --text-muted: #6B7280;
+        --text-label: #6B7280;
+        --accent: #6366F1;
+        --accent-hover: #4F46E5;
+        --divider: rgba(255,255,255,0.05);
+        --badge-default-bg: rgba(255,255,255,0.05);
+        --badge-default-border: rgba(255,255,255,0.1);
+        --badge-default-text: #9CA3AF;
+        --badge-tichu-bg: rgba(234,179,8,0.1);
+        --badge-tichu-border: rgba(234,179,8,0.2);
+        --badge-tichu-text: #FCD34D;
+        --badge-grand-bg: rgba(147,51,234,0.1);
+        --badge-grand-border: rgba(147,51,234,0.2);
+        --badge-grand-text: #C084FC;
+        --tab-inactive: #6B7280;
+        --team-a-text: #A5B4FC;
+        --team-a-score: #818CF8;
+        --team-b-text: #FDA4AF;
+        --team-b-score: #FB7185;
+    }
+
+    .page-bg { background-color: var(--bg-main); }
+    .t-primary { color: var(--text-primary); }
+    .t-secondary { color: var(--text-secondary); }
+    .t-muted { color: var(--text-muted); }
+    .t-label { color: var(--text-label); }
+
+    .lb-back-btn {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        color: var(--text-secondary);
+        border-radius: 9999px;
+        width: 2.25rem; height: 2.25rem;
+        display: flex; align-items: center; justify-content: center;
+        transition: all 0.15s;
+    }
+    .lb-back-btn:hover { color: var(--text-primary); }
+    .lb-title { color: var(--text-primary); }
+    .year-select {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        color: var(--text-primary);
+        font-size: 0.75rem;
+        font-weight: 700;
+        border-radius: 0.75rem;
+        padding: 0.5rem;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        outline: none;
+    }
+
+    .tab-bar {
+        background-color: var(--bg-card-sub);
+        border-radius: 1rem;
+        padding: 0.25rem;
+        display: flex;
+    }
+    .tab-btn {
+        flex: 1;
+        padding: 0.75rem 0.25rem;
+        font-size: 0.875rem;
+        font-weight: 700;
+        border-radius: 0.75rem;
+        transition: all 0.15s;
+    }
+    .tab-btn.active {
+        background-color: var(--bg-card);
+        color: var(--accent);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .tab-btn.inactive { color: var(--tab-inactive); }
+    .tab-btn.inactive:hover { color: var(--text-secondary); }
+
+    .rank-card {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        padding: 1rem;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    .player-name-text { color: var(--text-primary); font-size: 1rem; font-weight: 900; }
+    .team-name-text { color: var(--text-primary); font-size: 0.875rem; font-weight: 900; }
+    .win-rate-text { color: var(--accent); font-size: 1rem; font-weight: 900; }
+    .badge {
+        display: inline-flex; align-items: center;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.375rem;
+        font-size: 0.625rem;
+        font-weight: 700;
+        border: 1px solid;
+    }
+    .badge-default { background-color: var(--badge-default-bg); border-color: var(--badge-default-border); color: var(--badge-default-text); }
+    .badge-tichu { background-color: var(--badge-tichu-bg); border-color: var(--badge-tichu-border); color: var(--badge-tichu-text); }
+    .badge-grand { background-color: var(--badge-grand-bg); border-color: var(--badge-grand-border); color: var(--badge-grand-text); }
+    .empty-state { color: var(--text-muted); }
+    .error-state { color: #F43F5E; font-size: 0.75rem; }
+    .spinner {
+        border: 4px solid var(--bg-card-sub);
+        border-top-color: var(--accent);
+        border-radius: 9999px;
+        width: 2rem; height: 2rem;
+        animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* 경기 카드: 설정 > 기록 수정 목록(s-user-row)과 동일 */
+    .match-card {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 9.5rem minmax(0, 1fr); /* 왼쪽 팀 | 점수 | 오른쪽 팀 */
+        align-items: center;
+        column-gap: 0.5rem;
+    }
+    /* 점수: vs가 카드 정중앙, 양쪽 점수는 vs 쪽으로 붙여서 모든 카드에서 일직선 */
+    .match-score {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 1.75rem minmax(0, 1fr);
+        align-items: baseline;
+    }
+    .score-lost { color: var(--text-muted) !important; }
+
+    /* 하루 기록표 */
+    .day-table {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        padding: 0.375rem 0.75rem;
+    }
+    /* 한 사람당 한 줄: 이름(최대 3글자 = 38.6px → 2.75rem 칸) + 랭킹과 같은 배지.
+       360px 폭에서 배지 3개(최대 약 245px)가 한 줄에 들어가도록 여백을 맞춤 */
+    .day-row {
+        display: grid;
+        grid-template-columns: 2.75rem minmax(0, 1fr);
+        column-gap: 0.5rem;
+        align-items: center;
+        min-height: 2.75rem;
+        padding: 0.375rem 0;
+    }
+    .day-row + .day-row { border-top: 1px solid var(--divider); }
+
+    /* 사람 선택 줄 */
+    .chip-row { scrollbar-width: none; }
+    .chip-row::-webkit-scrollbar { display: none; }
+    .chip {
+        width: 3.5rem;
+        min-height: 4.25rem;
+        flex-shrink: 0;
+        display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
+        transition: opacity 0.15s, transform 0.15s;
+    }
+    .chip:active { transform: scale(0.95); }
+    .chip img { width: 2.75rem; height: 2.75rem; border-radius: 9999px; object-fit: cover; border: 1px solid var(--border); }
+    .chip span { font-size: 0.6875rem; font-weight: 700; color: var(--text-secondary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chip.selected img { box-shadow: 0 0 0 2px var(--bg-main), 0 0 0 4px var(--accent); }
+    .chip.selected span { color: var(--accent); }
+    .chip:disabled { opacity: 0.3; }
+</style>
+
+<div id="page-scroll" class="page-bg fixed inset-0 overflow-y-auto">
+    <div class="max-w-md mx-auto px-4 pb-20">
+        <!-- 헤더: 랭킹 화면과 동일 -->
+        <div class="relative flex items-center justify-between pt-6 pb-4">
+            <a href="/" class="lb-back-btn group-active:scale-95 transition-transform z-10">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+                </svg>
+            </a>
+
+            <h1 class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <span class="text-xl font-black tracking-tight flex items-center gap-1 lb-title">
+                    <span class="text-2xl">📜</span>
+                    <span>게임 기록</span>
+                </span>
+            </h1>
+
+            <div class="z-10">
+                <select id="year-filter" class="year-select"></select>
+            </div>
+        </div>
+
+        <!-- 스크롤해도 위에 붙어 있는 영역: 탭 + 사람 선택 줄 -->
+        <div class="sticky top-0 z-20 page-bg -mx-4 px-4 pt-3 pb-3">
+            <div class="tab-bar">
+                <button id="tab-day" onclick="switchTab('day')" class="tab-btn active">📅 일별</button>
+                <button id="tab-player" onclick="switchTab('player')" class="tab-btn inactive">👤 개인</button>
+                <button id="tab-team" onclick="switchTab('team')" class="tab-btn inactive">👥 팀</button>
+            </div>
+            <div id="chip-area" class="hidden">
+                <div id="chip-row" class="chip-row flex gap-2 overflow-x-auto -mx-4 px-4 pt-3"></div>
+                <p id="chip-hint" class="hidden text-xs font-bold t-muted text-center pt-2"></p>
+            </div>
+        </div>
+
+        <div id="summary" class="mb-5"></div>
+        <div id="history-list" class="space-y-6"></div>
+        <div id="history-footer" class="min-h-[44px] flex flex-col items-center justify-center gap-2 py-6 text-xs font-bold t-muted"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const DEFAULT_AVATAR = name => `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&size=150&background=9ca3af&color=fff`;
+    const RETURN_KEY = 'history_return';      // 상세 화면에서 돌아올 때 위치 복원용
+    const FROM_LIST_KEY = 'history_from_list'; // 상세 화면 ←가 목록으로 history.back() 할지
+    const STALE_KEY = 'history_stale';         // 기록 수정 저장 후 목록 새로고침 필요
+    const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+    const scroller = document.getElementById('page-scroll');
+    const listEl = document.getElementById('history-list');
+    const footerEl = document.getElementById('history-footer');
+
+    // ── 화면 상태 (주소에 기억: ?tab=player&p=3&year=2026) ──
+    const currentYearNum = new Date().getFullYear();
+    const query = new URLSearchParams(location.search);
+    const state = {
+        tab: ['day', 'player', 'team'].includes(query.get('tab')) ? query.get('tab') : 'day',
+        year: query.has('year') ? (query.get('year') === 'all' ? '' : query.get('year')) : String(currentYearNum),
+        selected: (query.get('p') || '').split(',').map(Number).filter(Boolean),
+    };
+    let playerOptions = [];   // 시즌에 경기한 사람 (경기 수 순)
+    let paging = null;        // { cursor, done, loading, pages, observer }
+
+    function esc(text) {
+        return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+    function avatar(p) { return esc(p.profile_url || DEFAULT_AVATAR(p.name)); }
+    function rate(success, tries) { return tries > 0 ? Math.round(success / tries * 100) : null; }
+    function preciseRate(success, tries) { return tries > 0 ? parseFloat((success / tries * 100).toFixed(2)) : 0; }
+    function playerName(id) { return playerOptions.find(p => p.id === id)?.name ?? ''; }
+    function needsSelection() {
+        return (state.tab === 'player' && state.selected.length !== 1)
+            || (state.tab === 'team' && state.selected.length !== 2);
+    }
+
+    function syncUrl() {
+        const params = new URLSearchParams();
+        if (state.tab !== 'day') params.set('tab', state.tab);
+        if (state.tab !== 'day' && state.selected.length) params.set('p', state.selected.join(','));
+        if (state.year !== String(currentYearNum)) params.set('year', state.year || 'all');
+        const search = params.toString() ? `?${params}` : '';
+        if (search !== location.search) history.replaceState(null, '', `/history${search}`);
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        sessionStorage.removeItem(FROM_LIST_KEY);
+        initYearFilter();
+        renderTabs();
+        await loadPlayerOptions();
+        const ticket = takeReturnTicket();
+        await resetList(ticket);
+    });
+
+    // bfcache로 돌아왔는데 그 사이 기록이 수정됐다면 새로 불러온다
+    window.addEventListener('pageshow', (e) => {
+        if (e.persisted && sessionStorage.getItem(STALE_KEY)) {
+            sessionStorage.removeItem(STALE_KEY);
+            location.reload();
+        }
+    });
+
+    function initYearFilter() {
+        const yearFilter = document.getElementById('year-filter');
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = '전체 기간';
+        yearFilter.appendChild(allOption);
+
+        const startYear = 2026;
+        for (let year = currentYearNum; year >= startYear; year--) {
+            const option = document.createElement('option');
+            option.value = year;
+            option.textContent = `${year} 시즌`;
+            yearFilter.appendChild(option);
+        }
+        if (![...yearFilter.options].some(o => o.value === state.year)) state.year = String(currentYearNum);
+        yearFilter.value = state.year;
+
+        yearFilter.addEventListener('change', async (e) => {
+            state.year = e.target.value;
+            await loadPlayerOptions();
+            resetList();
+        });
+    }
+
+    // ── 탭 ──
+    function switchTab(tab) {
+        if (state.tab === tab) return;
+        state.tab = tab;
+        state.selected = [];
+        renderTabs();
+        renderChips();
+        resetList();
+    }
+
+    function renderTabs() {
+        ['day', 'player', 'team'].forEach(tab => {
+            document.getElementById(`tab-${tab}`).className = `tab-btn ${state.tab === tab ? 'active' : 'inactive'}`;
+        });
+        document.getElementById('chip-area').classList.toggle('hidden', state.tab === 'day');
+    }
+
+    // ── 사람 선택 줄 ──
+    async function loadPlayerOptions() {
+        try {
+            const params = new URLSearchParams();
+            if (state.year) params.set('year', state.year);
+            const response = await fetch(`/api/matches/history/players?${params}`);
+            if (!response.ok) throw new Error();
+            playerOptions = await response.json();
+        } catch (e) {
+            playerOptions = [];
+        }
+        // 이 시즌에 경기가 없는 사람은 선택 해제
+        const ids = new Set(playerOptions.map(p => p.id));
+        const limit = state.tab === 'team' ? 2 : state.tab === 'player' ? 1 : 0;
+        state.selected = state.selected.filter(id => ids.has(id)).slice(0, limit);
+        if (state.tab === 'team' && state.selected.length === 2) {
+            const first = playerOptions.find(p => p.id === state.selected[0]);
+            if (!first.partner_ids.includes(state.selected[1])) state.selected = [state.selected[0]];
+        }
+        renderChips();
+    }
+
+    function renderChips() {
+        const row = document.getElementById('chip-row');
+        const hint = document.getElementById('chip-hint');
+        if (state.tab === 'day') return;
+
+        const first = playerOptions.find(p => p.id === state.selected[0]);
+        row.innerHTML = '';
+        playerOptions.forEach(p => {
+            const selected = state.selected.includes(p.id);
+            // 팀 탭: 한 명을 고르면 같은 팀을 한 적 없는 사람은 선택 불가
+            const disabled = state.tab === 'team' && state.selected.length === 1 && !selected
+                && first && !first.partner_ids.includes(p.id);
+            const btn = document.createElement('button');
+            btn.className = `chip${selected ? ' selected' : ''}`;
+            btn.disabled = disabled;
+            btn.innerHTML = `<img src="${avatar(p)}" alt=""><span>${esc(p.name)}</span>`;
+            btn.addEventListener('click', () => toggleChip(p.id));
+            row.appendChild(btn);
+        });
+
+        let hintText = '';
+        if (playerOptions.length === 0) hintText = '이 시즌에는 기록이 없습니다.';
+        else if (state.tab === 'team' && state.selected.length === 1) hintText = '같이 할 팀원을 한 명 더 골라주세요';
+        hint.textContent = hintText;
+        hint.classList.toggle('hidden', !hintText);
+    }
+
+    function toggleChip(id) {
+        if (state.tab === 'player') {
+            state.selected = state.selected[0] === id ? [] : [id];
+        } else if (state.selected.includes(id)) {
+            state.selected = state.selected.filter(x => x !== id);
+        } else {
+            state.selected = state.selected.length >= 2 ? [id] : [...state.selected, id];
+        }
+        renderChips();
+        resetList();
+    }
+
+    // ── 목록 (경기가 있었던 날 3일씩) ──
+    async function resetList(restore = null) {
+        syncUrl();
+        if (paging?.observer) paging.observer.disconnect();
+        const page = { cursor: null, done: false, loading: false, pages: 0, observer: null };
+        paging = page;
+        listEl.innerHTML = '';
+        document.getElementById('summary').innerHTML = '';
+        footerEl.innerHTML = '';
+        if (!restore) scroller.scrollTop = 0;
+
+        if (needsSelection()) {
+            const [icon, text] = state.tab === 'player'
+                ? ['👤', '기록을 볼 사람을 선택해주세요']
+                : ['👥', '팀원 두 명을 선택해주세요'];
+            listEl.innerHTML = `<div class="text-center py-20 empty-state"><p class="text-4xl mb-2">${icon}</p><p class="text-sm">${text}</p></div>`;
+            return;
+        }
+
+        // 돌아온 경우: 보던 만큼 다시 불러온 뒤 스크롤 위치 복원
+        if (restore) {
+            while (paging === page && !page.done && page.pages < restore.pages) {
+                if (!(await loadNextPage())) break;
+            }
+            if (paging === page) scroller.scrollTop = restore.scrollTop;
+        }
+        if (paging !== page || page.done) return;
+
+        page.observer = new IntersectionObserver(entries => {
+            if (entries.some(entry => entry.isIntersecting)) loadNextPage();
+        }, { root: scroller, rootMargin: '0px 0px 300px 0px' });
+        page.observer.observe(footerEl);
+    }
+
+    async function loadNextPage() {
+        const page = paging;
+        if (!page || page.loading || page.done) return false;
+        page.loading = true;
+        footerEl.innerHTML = '<div class="spinner"></div>';
+        let succeeded = false;
+        try {
+            const params = new URLSearchParams();
+            if (state.year) params.set('year', state.year);
+            if (state.tab !== 'day') params.set('player_ids', state.selected.join(','));
+            if (page.cursor) params.set('before_date', page.cursor);
+            const response = await fetch(`/api/matches/history?${params}`);
+            if (!response.ok) throw new Error();
+            const data = await response.json();
+            if (page !== paging) return false; // 그 사이 탭/사람/시즌이 바뀜
+
+            if (data.summary) renderSummary(data.summary);
+            data.days.forEach(day => listEl.appendChild(renderDay(day)));
+            page.pages += 1;
+            page.cursor = data.next_before_date;
+            page.done = !data.next_before_date;
+
+            if (page.done) {
+                page.observer?.disconnect();
+                footerEl.innerHTML = listEl.children.length
+                    ? '<p>마지막 기록입니다</p>'
+                    : '';
+                if (!listEl.children.length) {
+                    listEl.innerHTML = `<div class="text-center py-20 empty-state"><p class="text-4xl mb-2">📜</p><p class="text-sm">기록이 없습니다.</p></div>`;
+                }
+            } else {
+                footerEl.innerHTML = '';
+            }
+            succeeded = true;
+            return true;
+        } catch (e) {
+            if (page !== paging) return false;
+            footerEl.innerHTML = `
+                <p class="error-state">기록을 불러오는데 실패했습니다.</p>
+                <button onclick="loadNextPage()" class="min-h-[44px] px-5 rounded-xl font-bold t-primary" style="background-color:var(--bg-card-sub)">다시 시도</button>`;
+            return false;
+        } finally {
+            page.loading = false;
+            // 불러온 뒤에도 바닥이 보이면(화면이 덜 참) 다시 감지되도록 재등록
+            if (succeeded && !page.done && page === paging && page.observer) {
+                page.observer.unobserve(footerEl);
+                page.observer.observe(footerEl);
+            }
+        }
+    }
+
+    // ── 시즌 요약 카드 (랭킹 카드와 동일한 모양) ──
+    function renderSummary(s) {
+        const games = s.wins + s.losses;
+        const winRate = games ? parseFloat((s.wins / games * 100).toFixed(1)) : 0;
+        const people = state.selected.map(id => playerOptions.find(p => p.id === id)).filter(Boolean);
+        let picture, title;
+        if (people.length === 2) {
+            const names = people.map(p => p.name).sort();
+            picture = `
+                <div class="relative shrink-0" style="width:3.25rem;height:2.5rem;">
+                    <img src="${avatar(people[0])}" class="w-8 h-8 rounded-full object-cover absolute left-0 top-1/2 -translate-y-1/2 z-10" style="border: 2px solid var(--bg-card);">
+                    <img src="${avatar(people[1])}" class="w-8 h-8 rounded-full object-cover absolute right-0 top-1/2 -translate-y-1/2" style="border: 2px solid var(--bg-card);">
+                </div>`;
+            title = `<span class="team-name-text truncate pr-2">${esc(names[0])}/${esc(names[1])} 팀</span>`;
+        } else {
+            picture = `<img src="${avatar(people[0])}" class="w-10 h-10 rounded-full object-cover shrink-0" style="border: 1px solid var(--border);">`;
+            title = `<span class="player-name-text truncate pr-2">${esc(people[0]?.name)}</span>`;
+        }
+        document.getElementById('summary').innerHTML = `
+            <div class="rank-card">
+                ${picture}
+                <div class="flex-1 min-w-0">
+                    <div class="flex justify-between items-center mb-2">
+                        ${title}
+                        <span class="win-rate-text shrink-0">${winRate}%</span>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">
+                        <span class="badge badge-default">${s.wins}승 ${s.losses}패</span>
+                        <span class="badge badge-tichu">스몰 ${preciseRate(s.tichu_success, s.tichu_try)}% (${s.tichu_success}/${s.tichu_try})</span>
+                        <span class="badge badge-grand">라지 ${preciseRate(s.grand_success, s.grand_try)}% (${s.grand_success}/${s.grand_try})</span>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    // ── 날짜 묶음 ──
+    function formatDay(isoDate) {
+        const [y, m, d] = isoDate.split('-').map(Number);
+        const weekday = WEEKDAYS[new Date(y, m - 1, d).getDay()];
+        const prefix = y === currentYearNum ? '' : `${y}년 `;
+        return `${prefix}${m}월 ${d}일 (${weekday})`;
+    }
+
+    function renderDay(day) {
+        const section = document.createElement('section');
+        let headerRight = '';
+        if (state.tab !== 'day') {
+            const mine = day.records.find(r => r.player_id === state.selected[0]);
+            if (mine) headerRight = `<span class="badge badge-default">${mine.wins}승 ${mine.losses}패</span>`;
+        }
+        section.innerHTML = `
+            <div class="flex items-center justify-between px-1 mb-2">
+                <h3 class="text-sm font-black t-primary">${formatDay(day.date)} <span class="t-muted font-bold">· ${day.game_count}게임</span></h3>
+                ${headerRight}
+            </div>
+            ${state.tab === 'day' ? renderDayTable(day.records) : ''}
+            <div class="space-y-2"></div>`;
+        const cards = section.lastElementChild;
+        day.matches.forEach(match => cards.appendChild(renderMatch(match)));
+        return section;
+    }
+
+    // 랭킹 배지와 같은 모양: "스몰 33% (1/3)". 그날 시도하지 않았으면 배지 없음
+    function rateBadge(label, success, tries, cls) {
+        if (!tries) return '';
+        return `<span class="badge ${cls}">${label} ${rate(success, tries)}% (${success}/${tries})</span>`;
+    }
+
+    function renderDayTable(records) {
+        const rows = records.map(r => `
+            <div class="day-row">
+                <p class="text-sm font-black t-primary truncate">${esc(r.name)}</p>
+                <div class="flex flex-wrap gap-1.5">
+                    <span class="badge badge-default">${r.wins}승 ${r.losses}패</span>
+                    ${rateBadge('스몰', r.tichu_success, r.tichu_try, 'badge-tichu')}
+                    ${rateBadge('라지', r.grand_success, r.grand_try, 'badge-grand')}
+                </div>
+            </div>`).join('');
+        return `<div class="day-table mb-2">${rows}</div>`;
+    }
+
+    // ── 경기 카드 (기록 수정 목록 카드와 동일, 날짜 줄만 제외) ──
+    function renderMatch(match) {
+        const sideA = { label: 'TEAM A', text: '--team-a-text', score: '--team-a-score', names: match.team_a, value: match.score_a, won: match.winner_team === 'A' };
+        const sideB = { label: 'TEAM B', text: '--team-b-text', score: '--team-b-score', names: match.team_b, value: match.score_b, won: match.winner_team === 'B' };
+        // 개인/팀 탭: 선택한 사람의 팀을 항상 왼쪽에
+        const filtered = state.tab !== 'day';
+        const mineIsB = filtered && match.team_b.some(p => p.id === state.selected[0]);
+        const [left, right] = mineIsB ? [sideB, sideA] : [sideA, sideB];
+
+        const resultPill = filtered
+            ? `<span class="ml-1 text-[10px] font-black px-1.5 py-0.5 rounded-full ${left.won ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">${left.won ? '승' : '패'}</span>`
+            : '';
+        // 이름은 한 줄에 한 명씩 (모든 카드 높이 동일), 진 팀도 이름은 진하게
+        const names = side => side.names.map(p => `<p class="text-sm font-bold t-primary truncate">${esc(p.name)}</p>`).join('');
+        // 이긴 팀 점수는 팀 색, 진 팀 점수만 회색
+        const score = side => `<span class="text-2xl font-black ${side.won ? '' : 'score-lost'}" style="color:var(${side.score})">${side.value}</span>`;
+
+        const a = document.createElement('a');
+        a.href = `/history/${match.id}`;
+        a.className = 'match-card p-4 rounded-2xl shadow-sm active:scale-95 transition';
+        a.innerHTML = `
+            <div class="min-w-0">
+                <p class="text-xs font-bold mb-0.5 flex items-center" style="color:var(${left.text})">${left.label}${resultPill}</p>
+                ${names(left)}
+            </div>
+            <div class="match-score">
+                <p class="text-right">${score(left)}</p>
+                <p class="text-xs font-bold t-muted text-center">vs</p>
+                <p class="text-left">${score(right)}</p>
+            </div>
+            <div class="min-w-0 text-right">
+                <p class="text-xs font-bold mb-0.5" style="color:var(${right.text})">${right.label}</p>
+                ${names(right)}
+            </div>`;
+        a.addEventListener('click', () => saveReturnTicket());
+        return a;
+    }
+
+    // ── 상세 화면 갔다 돌아올 때 위치 복원 ──
+    function saveReturnTicket() {
+        sessionStorage.setItem(RETURN_KEY, JSON.stringify({
+            search: location.search,
+            pages: paging?.pages || 1,
+            scrollTop: scroller.scrollTop,
+            ts: Date.now(),
+        }));
+        sessionStorage.setItem(FROM_LIST_KEY, '1');
+    }
+
+    function takeReturnTicket() {
+        try {
+            const ticket = JSON.parse(sessionStorage.getItem(RETURN_KEY) || 'null');
+            sessionStorage.removeItem(RETURN_KEY);
+            sessionStorage.removeItem(STALE_KEY);
+            if (ticket && ticket.search === location.search && Date.now() - ticket.ts < 30 * 60 * 1000) return ticket;
+        } catch (e) { /* 무시 */ }
+        return null;
+    }
+</script>
+{% endblock %}
