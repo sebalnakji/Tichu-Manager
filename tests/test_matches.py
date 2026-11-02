@@ -550,6 +550,42 @@ def test_replace_rounds_rejects_unfinished_result_without_saving(
     assert persisted.winner_team == "A"
 
 
+def test_finished_matches_paginate_with_before_id(db, player_ids):
+    finished_ids = []
+    for index in range(25):
+        finished_ids.append(create_match(db, player_ids, status="FINISHED"))
+        if index % 5 == 0:
+            create_match(db, player_ids)  # 진행 중 경기는 목록에서 빠져야 함
+    expected = sorted(finished_ids, reverse=True)
+
+    pages = []
+    with _record_edit_client(db) as client:
+        before_id = None
+        while True:
+            params = {"limit": 10}
+            if before_id is not None:
+                params["before_id"] = before_id
+            response = client.get("/api/matches/finished", params=params)
+            assert response.status_code == 200
+            page = [match["id"] for match in response.json()]
+            pages.append(page)
+            if len(page) < 10:
+                break
+            before_id = page[-1]
+
+    assert [len(page) for page in pages] == [10, 10, 5]
+    assert [match_id for page in pages for match_id in page] == expected
+
+
+def test_finished_matches_without_cursor_returns_latest(db, player_ids):
+    finished_ids = [create_match(db, player_ids, status="FINISHED") for _ in range(12)]
+
+    with _record_edit_client(db) as client:
+        response = client.get("/api/matches/finished")
+
+    assert [match["id"] for match in response.json()] == sorted(finished_ids, reverse=True)[:10]
+
+
 def test_finished_match_rejects_new_round_without_saving(db, player_ids):
     match_id = _finished_match_with_rounds(db, player_ids, count=10)
 

@@ -139,15 +139,18 @@ def create_match(match: MatchCreate, db: Session = Depends(get_db)):
 
 @router.get("/finished")
 def get_finished_matches(
-    limit: int = Query(default=10, le=50),
+    limit: int = Query(default=10, ge=1, le=50),
+    before_id: Optional[int] = Query(default=None, ge=1),
     db: Session = Depends(get_db)
 ):
     """
     최근 완료된 매치 목록 조회 (관리자 기록 수정용)
+    - before_id: 이 ID보다 오래된(작은) 매치부터 조회 (무한 스크롤용 커서)
     """
-    matches = db.query(Match).filter(
-        Match.status == "FINISHED"
-    ).order_by(Match.id.desc()).limit(limit).all()
+    query = db.query(Match).filter(Match.status == "FINISHED")
+    if before_id is not None:
+        query = query.filter(Match.id < before_id)
+    matches = query.order_by(Match.id.desc()).limit(limit).all()
 
     player_ids = {
         player_id

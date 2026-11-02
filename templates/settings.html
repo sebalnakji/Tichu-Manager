@@ -648,7 +648,10 @@
     // ─────────────────────────────────────────────────
 
     // ── 기록 수정 ─────────────────────────────────────
-    async function showMatchEditModal() {
+    const MATCH_EDIT_PAGE_SIZE = 10;
+    let matchEditState = null; // { lastId, done, loading, observer } — 목록을 열 때마다 새로 생성
+
+    function showMatchEditModal() {
         const modal = document.getElementById('match-edit-modal');
         const inner = modal.querySelector('.animate-slide-up');
         inner.style.transform = 'translateY(100%)';
@@ -658,46 +661,89 @@
             inner.style.transform = 'translateY(0)';
         });
         const list = document.getElementById('match-edit-list');
-        list.innerHTML = '<p class="text-center py-8 s-text-muted text-sm">불러오는 중...</p>';
+
+        // 목록을 열 때마다 처음 10경기부터 새로 불러온다
+        if (matchEditState?.observer) matchEditState.observer.disconnect();
+        list.innerHTML = '<div id="match-edit-sentinel" class="min-h-[44px] flex flex-col items-center justify-center gap-2 py-4 text-sm s-text-muted"></div>';
+        const sentinel = document.getElementById('match-edit-sentinel');
+        const state = { lastId: null, done: false, loading: false, observer: null };
+        matchEditState = state;
+        // 목록 맨 아래(sentinel)가 보이면 다음 페이지 요청
+        state.observer = new IntersectionObserver(entries => {
+            if (entries.some(entry => entry.isIntersecting)) loadMoreMatchEdits();
+        }, { root: list, rootMargin: '0px 0px 200px 0px' });
+        state.observer.observe(sentinel);
+    }
+
+    async function loadMoreMatchEdits() {
+        const state = matchEditState;
+        if (!state || state.loading || state.done) return;
+        state.loading = true;
+        const sentinel = document.getElementById('match-edit-sentinel');
+        sentinel.innerHTML = '<p>불러오는 중...</p>';
+        let succeeded = false;
         try {
-            const response = await fetch('/api/matches/finished?limit=10');
+            const params = new URLSearchParams({ limit: MATCH_EDIT_PAGE_SIZE });
+            if (state.lastId !== null) params.set('before_id', state.lastId);
+            const response = await fetch(`/api/matches/finished?${params}`);
             if (!response.ok) throw new Error('매치 목록 로드 실패');
             const matches = await response.json();
-            list.innerHTML = '';
-            if (matches.length === 0) {
-                list.innerHTML = '<p class="text-center py-8 s-text-muted text-sm">완료된 게임이 없습니다.</p>';
-                return;
+            if (state !== matchEditState) return; // 그 사이 목록을 다시 연 경우 무시
+
+            matches.forEach(match => sentinel.before(createMatchEditItem(match)));
+            if (matches.length > 0) state.lastId = matches[matches.length - 1].id;
+
+            if (matches.length < MATCH_EDIT_PAGE_SIZE) {
+                state.done = true;
+                state.observer.disconnect();
+                sentinel.innerHTML = state.lastId === null
+                    ? '<p class="py-4">완료된 게임이 없습니다.</p>'
+                    : '<p>마지막 기록입니다</p>';
+            } else {
+                sentinel.innerHTML = '';
             }
-            matches.forEach(match => {
-                const isWinnerA = match.winner_team === 'A';
-                const div = document.createElement('a');
-                div.href = `/scoreboard/${match.id}?return_to=match-edit`;
-                div.className = 's-user-row flex flex-col p-4 rounded-2xl shadow-sm active:scale-95 transition block';
-                div.innerHTML = `
-                    <div class="flex justify-between items-center mb-3">
-                        <span class="text-xs font-bold s-text-muted">${match.play_date}</span>
-                        <span class="text-xs font-bold px-2 py-0.5 rounded-full ${isWinnerA ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}">
-                            ${isWinnerA ? 'TEAM A' : 'TEAM B'} 승리
-                        </span>
-                    </div>
-                    <div class="flex items-center justify-between gap-2">
-                        <div class="flex-1">
-                            <p class="text-xs font-bold mb-0.5" style="color:var(--team-a-text)">TEAM A</p>
-                            <p class="text-sm font-bold s-text-primary">${match.team_a_names.join(', ')}</p>
-                        </div>
-                        <p class="text-2xl font-black shrink-0" style="color:var(--team-a-score)">${match.score_a}</p>
-                        <p class="text-sm font-bold s-text-muted shrink-0">vs</p>
-                        <p class="text-2xl font-black shrink-0" style="color:var(--team-b-score)">${match.score_b}</p>
-                        <div class="flex-1 text-right">
-                            <p class="text-xs font-bold mb-0.5" style="color:var(--team-b-text)">TEAM B</p>
-                            <p class="text-sm font-bold s-text-primary">${match.team_b_names.join(', ')}</p>
-                        </div>
-                    </div>`;
-                list.appendChild(div);
-            });
+            succeeded = true;
         } catch (error) {
-            list.innerHTML = '<p class="text-center py-8 text-red-500 text-sm">목록을 불러오는데 실패했습니다.</p>';
+            if (state !== matchEditState) return;
+            sentinel.innerHTML = `
+                <p class="text-red-500">목록을 불러오는데 실패했습니다.</p>
+                <button onclick="loadMoreMatchEdits()" class="min-h-[44px] px-5 rounded-xl font-bold s-text-primary" style="background-color:var(--bg-card-sub)">다시 시도</button>`;
+        } finally {
+            state.loading = false;
+            // 불러온 뒤에도 맨 아래가 여전히 보이면(화면이 덜 찬 경우) 다시 감지되도록 재등록
+            if (succeeded && !state.done && state === matchEditState) {
+                state.observer.unobserve(sentinel);
+                state.observer.observe(sentinel);
+            }
         }
+    }
+
+    function createMatchEditItem(match) {
+        const isWinnerA = match.winner_team === 'A';
+        const div = document.createElement('a');
+        div.href = `/scoreboard/${match.id}?return_to=match-edit`;
+        div.className = 's-user-row flex flex-col p-4 rounded-2xl shadow-sm active:scale-95 transition block';
+        div.innerHTML = `
+            <div class="flex justify-between items-center mb-3">
+                <span class="text-xs font-bold s-text-muted">${match.play_date}</span>
+                <span class="text-xs font-bold px-2 py-0.5 rounded-full ${isWinnerA ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}">
+                    ${isWinnerA ? 'TEAM A' : 'TEAM B'} 승리
+                </span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+                <div class="flex-1">
+                    <p class="text-xs font-bold mb-0.5" style="color:var(--team-a-text)">TEAM A</p>
+                    <p class="text-sm font-bold s-text-primary">${match.team_a_names.join(', ')}</p>
+                </div>
+                <p class="text-2xl font-black shrink-0" style="color:var(--team-a-score)">${match.score_a}</p>
+                <p class="text-sm font-bold s-text-muted shrink-0">vs</p>
+                <p class="text-2xl font-black shrink-0" style="color:var(--team-b-score)">${match.score_b}</p>
+                <div class="flex-1 text-right">
+                    <p class="text-xs font-bold mb-0.5" style="color:var(--team-b-text)">TEAM B</p>
+                    <p class="text-sm font-bold s-text-primary">${match.team_b_names.join(', ')}</p>
+                </div>
+            </div>`;
+        return div;
     }
     function closeMatchEditModal() { document.getElementById('match-edit-modal').classList.add('hidden'); }
     // ───────────────────────────────────────────────────
