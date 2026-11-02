@@ -293,8 +293,11 @@
     <!-- 최상단 헤더 -->
     <div class="sb-header shadow-sm shrink-0">
         <div class="max-w-lg mx-auto px-4 py-3 flex items-center justify-between relative">
+            {% set return_to = request.query_params.get('return_to') %}
             <a
-                href="{{ '/settings?open=match-edit' if request.query_params.get('return_to') == 'match-edit' else '/' }}"
+                href="{{ '/settings?open=match-edit' if return_to == 'match-edit' else ('/history/' ~ match_id if return_to == 'history' else '/') }}"
+                {# 게임 기록 상세에서 온 경우: 점수판을 기록에서 지워 뒤로 가기가 상세 → 목록 순서가 되게 함 #}
+                {% if return_to == 'history' %}onclick="location.replace(this.href); return false;"{% endif %}
                 class="p-2 -ml-2 rounded-full transition sb-back"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -518,8 +521,10 @@
 {% block extra_scripts %}
 <script>
     const matchId = {{ match_id }};
-    // 관리자 > 잘못된 기록 수정으로 진입한 경우: 변경을 모아두었다가 "수정하기"로 한 번에 저장
-    const IS_RECORD_EDIT = {{ 'true' if request.query_params.get('return_to') == 'match-edit' else 'false' }};
+    // 관리자 > 잘못된 기록 수정 또는 게임 기록 상세 > 수정으로 진입한 경우:
+    // 변경을 모아두었다가 "수정하기"로 한 번에 저장
+    const RETURN_TO = {{ (request.query_params.get('return_to') or '') | tojson }};
+    const IS_RECORD_EDIT = RETURN_TO === 'match-edit' || RETURN_TO === 'history';
     let matchData = null;
     let originalRounds = [];
     let currentRoundNumber = null;
@@ -711,7 +716,12 @@
                 throw new Error(typeof err.detail === 'string' ? err.detail : '입력값을 확인해주세요.');
             }
             alert('수정되었습니다.');
-            window.location.href = '/settings?open=match-edit';
+            if (RETURN_TO === 'history') {
+                sessionStorage.setItem('history_stale', '1'); // 목록이 bfcache로 복원되면 새로고침
+                window.location.replace(`/history/${matchId}`);
+            } else {
+                window.location.href = '/settings?open=match-edit';
+            }
         } catch (e) {
             alert('수정 실패: ' + e.message);
         }

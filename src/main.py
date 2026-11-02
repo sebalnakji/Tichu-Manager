@@ -150,6 +150,17 @@ async def history(request: Request):
     )
 
 
+@app.get("/history/{match_id}", response_class=HTMLResponse)
+async def history_detail(request: Request, match_id: int):
+    """
+    게임 기록 상세 화면 - 라운드별 기록 (읽기 전용)
+    """
+    return templates.TemplateResponse(
+        "history_detail.html",
+        {"request": request, "match_id": match_id, "title": "게임 기록"}
+    )
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """

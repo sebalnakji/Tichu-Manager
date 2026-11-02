@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block title %}게임 기록 - Tichu Manager{% endblock %}
+
+{% block content %}
+<style>
+    /* 머리 줄은 랭킹 화면, 점수 카드·라운드 카드·배지는 점수판(scoreboard.html)과 동일 */
+    :root {
+        --bg-main: #F4F4F8;
+        --bg-card: #FFFFFF;
+        --bg-card-sub: #F0F0F6;
+        --border: rgba(0, 0, 0, 0.07);
+        --text-primary: #0F0F1A;
+        --text-secondary: #6B7280;
+        --text-muted: #9CA3AF;
+        --accent: #4F46E5;
+        --divider: rgba(0,0,0,0.06);
+
+        --team-a-text: #3730A3;
+        --team-a-score: #4F46E5;
+        --team-a-bg: rgba(79, 70, 229, 0.05);
+        --team-a-badge-bg: rgba(79, 70, 229, 0.1);
+        --team-a-badge-text: #4F46E5;
+
+        --team-b-text: #9F1239;
+        --team-b-score: #F43F5E;
+        --team-b-bg: rgba(244, 63, 94, 0.05);
+        --team-b-badge-bg: rgba(244, 63, 94, 0.1);
+        --team-b-badge-text: #F43F5E;
+
+        --round-card-bg: #FFFFFF;
+        --round-card-border: rgba(0,0,0,0.07);
+        --round-empty-bg: rgba(0,0,0,0.02);
+        --round-empty-border: rgba(0,0,0,0.1);
+    }
+
+    [data-theme="dark"] {
+        --bg-main: #0F0F1A;
+        --bg-card: #1A1A2E;
+        --bg-card-sub: #0F0F1A;
+        --border: rgba(255, 255, 255, 0.08);
+        --text-primary: #FFFFFF;
+        --text-secondary: #9CA3AF;
+        --text-muted: #6B7280;
+        --accent: #6366F1;
+        --divider: rgba(255,255,255,0.05);
+
+        --team-a-text: #A5B4FC;
+        --team-a-score: #818CF8;
+        --team-a-bg: rgba(99, 102, 241, 0.08);
+        --team-a-badge-bg: rgba(99, 102, 241, 0.2);
+        --team-a-badge-text: #818CF8;
+
+        --team-b-text: #FDA4AF;
+        --team-b-score: #FB7185;
+        --team-b-bg: rgba(251, 113, 133, 0.08);
+        --team-b-badge-bg: rgba(251, 113, 133, 0.2);
+        --team-b-badge-text: #FB7185;
+
+        --round-card-bg: #1A1A2E;
+        --round-card-border: rgba(255,255,255,0.08);
+        --round-empty-bg: rgba(255,255,255,0.02);
+        --round-empty-border: rgba(255,255,255,0.1);
+    }
+
+    .page-bg { background-color: var(--bg-main); }
+
+    .lb-back-btn {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        color: var(--text-secondary);
+        border-radius: 9999px;
+        width: 2.25rem; height: 2.25rem;
+        display: flex; align-items: center; justify-content: center;
+        transition: all 0.15s;
+    }
+    .lb-back-btn:hover { color: var(--text-primary); }
+    .lb-title { color: var(--text-primary); }
+    .sb-direct-btn {
+        color: var(--text-secondary);
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 0.375rem 0.75rem;
+        transition: all 0.15s;
+    }
+    button:hover .sb-direct-btn { background-color: var(--bg-card-sub); color: var(--text-primary); }
+
+    .score-card {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 1.25rem;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+        overflow: hidden;
+    }
+    .score-side-a { background: linear-gradient(to bottom, var(--team-a-bg), transparent); }
+    .score-side-b { background: linear-gradient(to bottom, var(--team-b-bg), transparent); }
+    .score-divider { background-color: var(--divider); }
+    .team-a-label { color: var(--team-a-text); }
+    .team-b-label { color: var(--team-b-text); }
+    .team-a-score-val { color: var(--team-a-score); }
+    .team-b-score-val { color: var(--team-b-score); }
+    .season-rate-a { color: var(--team-a-badge-text); background-color: var(--team-a-badge-bg); }
+    .season-rate-b { color: var(--team-b-badge-text); background-color: var(--team-b-badge-bg); }
+
+    .section-label { color: var(--text-muted); }
+    .round-card {
+        background-color: var(--round-card-bg);
+        border: 1px solid var(--round-card-border);
+        border-radius: 1rem;
+        padding: 0.625rem 0.875rem;
+    }
+    .round-label { color: var(--text-muted); }
+    .round-badge { border: 1px solid rgba(0,0,0,0.10); }
+    [data-theme="dark"] .round-badge { border: 1px solid rgba(255,255,255,0.10); }
+    .round-score-a { color: var(--team-a-score); }
+    .round-score-b { color: var(--team-b-score); }
+    .round-empty {
+        background-color: var(--round-empty-bg);
+        border: 1px dashed var(--round-empty-border);
+        border-radius: 1rem;
+        color: var(--text-muted);
+    }
+    .error-state { color: #F43F5E; font-size: 0.75rem; }
+    .spinner {
+        border: 4px solid var(--bg-card-sub);
+        border-top-color: var(--accent);
+        border-radius: 9999px;
+        width: 2rem; height: 2rem;
+        animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+<div class="page-bg fixed inset-0 overflow-y-auto">
+    <div class="max-w-md mx-auto px-4 pb-20">
+        <!-- 헤더: 랭킹 화면과 동일 (← · 제목 · 오른쪽 버튼) -->
+        <div class="relative flex items-center justify-between py-6 mb-2">
+            <button onclick="goBack()" class="lb-back-btn group-active:scale-95 transition-transform z-10" aria-label="뒤로">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+                </svg>
+            </button>
+
+            <h1 class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <span id="detail-title" class="text-xl font-black tracking-tight lb-title">게임 기록</span>
+            </h1>
+
+            <!-- 점수판 머리 줄 버튼과 같은 모양, 누르는 영역은 44px -->
+            <button onclick="startEdit()" class="z-10 min-w-[44px] min-h-[44px] -mr-1 flex items-center justify-end">
+                <span class="sb-direct-btn">수정</span>
+            </button>
+        </div>
+
+        <div id="detail-body" class="flex justify-center py-20"><div class="spinner"></div></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const MATCH_ID = {{ match_id }};
+    const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+    function esc(text) {
+        return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function formatDay(isoDate) {
+        const [y, m, d] = isoDate.split('-').map(Number);
+        const weekday = WEEKDAYS[new Date(y, m - 1, d).getDay()];
+        const prefix = y === new Date().getFullYear() ? '' : `${y}년 `;
+        return `${prefix}${m}월 ${d}일 (${weekday})`;
+    }
+
+    document.addEventListener('DOMContentLoaded', loadDetail);
+
+    // ← : 목록에서 왔으면 브라우저 뒤로(보던 위치 유지), 아니면 목록으로 이동
+    function goBack() {
+        if (sessionStorage.getItem('history_from_list')) history.back();
+        else location.href = '/history';
+    }
+
+    // 수정: 관리자면 바로, 아니면 코드 입력 후 관리자일 때만 기록 수정 화면으로
+    function startEdit() {
+        const go = () => location.replace(`/scoreboard/${MATCH_ID}?return_to=history`);
+        if (AuthManager.isAdmin()) { go(); return; }
+        AuthManager.showAuthModal(() => {
+            if (AuthManager.isAdmin()) go();
+            else alert('관리자만 수정할 수 있습니다.');
+        });
+    }
+
+    async function loadDetail() {
+        const body = document.getElementById('detail-body');
+        try {
+            const response = await fetch(`/api/matches/${MATCH_ID}`);
+            if (!response.ok) throw new Error(response.status === 404 ? '경기를 찾을 수 없습니다.' : '기록을 불러오는데 실패했습니다.');
+            const match = await response.json();
+            document.getElementById('detail-title').textContent = formatDay(match.play_date);
+            body.className = '';
+            body.innerHTML = renderScoreCard(match) + renderRounds(match);
+        } catch (e) {
+            body.className = 'text-center py-20';
+            body.innerHTML = `<p class="error-state">${esc(e.message)}</p>`;
+        }
+    }
+
+    // ── 점수 카드 (점수판 상단 카드와 동일) ──
+    function renderScoreCard(match) {
+        const side = (team, players, score) => {
+            const lower = team.toLowerCase();
+            const won = match.winner_team === team;
+            return `
+                <div class="flex-1 min-w-0 px-4 py-4 flex flex-col items-center justify-center gap-1.5 score-side-${lower}">
+                    <div class="flex items-center gap-1.5 max-w-full">
+                        <p class="text-xs font-black tracking-widest team-${lower}-label shrink-0">TEAM ${team}</p>
+                        <p class="text-xs truncate" style="color:var(--text-muted)">${players.map(p => esc(p.name)).join(', ')}</p>
+                    </div>
+                    <p class="text-4xl font-black tracking-tighter leading-none team-${lower}-score-val">${score}</p>
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full season-rate-${lower} ${won ? '' : 'invisible'}">🏆 승리</span>
+                </div>`;
+        };
+        return `
+            <div class="score-card mb-5">
+                <div class="flex items-stretch">
+                    ${side('A', match.team_a_players, match.team_a_total_score)}
+                    <div class="score-divider relative flex items-center justify-center" style="width:1px;">
+                        <div class="absolute text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-sm z-10" style="background-color:var(--bg-card); border:1px solid var(--border); color:var(--text-muted);">VS</div>
+                    </div>
+                    ${side('B', match.team_b_players, match.team_b_total_score)}
+                </div>
+            </div>`;
+    }
+
+    // ── 라운드 카드 (점수판 ROUND 카드와 동일, 수정/삭제 자리에 누적 점수) ──
+    function eventBadges(round, players) {
+        return round.events.map(e => {
+            if (e.type === 'custom') {
+                return `<span class="text-xs font-bold px-2 py-0.5 rounded-lg round-badge" style="background-color:var(--bg-card-sub); color:var(--text-secondary);">${esc(e.text)}</span>`;
+            }
+            let badgeClass;
+            if (e.type === 'one_two') badgeClass = 'bg-emerald-100 text-emerald-700';
+            else if (e.type === 'tichu' && e.success) badgeClass = 'bg-yellow-100 text-yellow-700';
+            else if (e.type === 'grand' && e.success) badgeClass = 'bg-violet-100 text-violet-700';
+            else badgeClass = 'bg-red-100 text-red-700';
+            const p = players.find(x => x.id === e.player_id);
+            const text = e.type === 'one_two'
+                ? `${e.team === 'A' ? 'A팀' : 'B팀'} 원투`
+                : `${p ? esc(p.name) : ''} ${e.type === 'tichu' ? '티츄' : '라지'} ${e.success ? '성공' : '실패'}`;
+            return `<span class="text-xs font-bold px-2 py-0.5 rounded-lg round-badge ${badgeClass}">${text}</span>`;
+        }).join('');
+    }
+
+    function renderRounds(match) {
+        const header = '<h3 class="text-xs font-bold uppercase tracking-wider mb-3 px-1 section-label">라운드 기록</h3>';
+        if (!match.rounds.length) {
+            return header + '<div class="round-empty w-full text-center text-sm py-8">기록된 라운드가 없습니다.</div>';
+        }
+        const players = [...match.team_a_players, ...match.team_b_players];
+        let totalA = 0;
+        let totalB = 0;
+        const cards = [...match.rounds]
+            .sort((a, b) => a.round_number - b.round_number)  // 게임 흐름대로 1라운드부터
+            .map(round => {
+                totalA += round.team_a_total;
+                totalB += round.team_b_total;
+                const leadA = totalA > totalB;
+                const leadB = totalB > totalA;
+                const badges = eventBadges(round, players);
+                return `
+                    <div class="round-card">
+                        <div>
+                            <div class="flex items-center justify-between text-xs font-bold">
+                                <span class="round-label">ROUND ${round.round_number}</span>
+                                <span>
+                                    <span class="round-label">누적</span>
+                                    <span class="round-score-a ${leadA ? 'font-black' : 'opacity-60'}">${totalA}</span>
+                                    <span class="round-label">:</span>
+                                    <span class="round-score-b ${leadB ? 'font-black' : 'opacity-60'}">${totalB}</span>
+                                </span>
+                            </div>
+                            <div class="flex justify-center items-center gap-3 mt-0.5">
+                                <span class="text-2xl font-black round-score-a">${round.team_a_total}</span>
+                                <span style="color:var(--text-muted); font-size:0.75rem;">vs</span>
+                                <span class="text-2xl font-black round-score-b">${round.team_b_total}</span>
+                            </div>
+                        </div>
+                        ${badges ? `<div class="flex flex-wrap gap-1 mt-1">${badges}</div>` : ''}
+                    </div>`;
+            }).join('');
+        return header + `<div class="space-y-3">${cards}</div>`;
+    }
+</script>
+{% endblock %}
