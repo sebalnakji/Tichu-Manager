@@ -404,3 +404,107 @@ def test_round_api_returns_mergeable_match_state(db, player_ids):
         ],
         "winner_team": None,
     }
+
+
+def _record_edit_client(db):
+    app = FastAPI()
+    app.include_router(matches_router)
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    return TestClient(app)
+
+
+def _finished_match_with_rounds(db, player_ids, count=11):
+    """매 라운드 A 100 : B 0, count=10이면 1000:0으로 종료."""
+    match_id = create_match(db, player_ids)
+    for number in range(1, count + 1):
+        add_round_score(match_id, round_request(number=number), db)
+    return match_id
+
+
+def _round_json(number, team_a=100, team_b=0, events=None):
+    return {
+        "round_number": number,
+        "team_a_base_score": team_a,
+        "team_b_base_score": team_b,
+        "events": events or [],
+        "direct": False,
+    }
+
+
+def test_replace_rounds_saves_all_changes_at_once(db, player_ids):
+    from core.properties import settings
+
+    match_id = _finished_match_with_rounds(db, player_ids, count=10)
+    # 기존 라운드 3개(8~10)를 지우고, 티츄 성공 라운드를 포함해 새 라운드를 추가
+    rounds = [_round_json(n) for n in range(1, 8)]
+    rounds += [
+        _round_json(11, 70, 30, [{"type": "tichu", "player_id": player_ids[0], "success": True}]),
+        _round_json(12, 60, 40),
+        _round_json(13, 100, 0),
+    ]
+
+    with _record_edit_client(db) as client:
+        response = client.put(
+            f"/api/matches/{match_id}/rounds",
+            json={"rounds": rounds},
+            headers={"Authorization": settings.ADMIN_CODE},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["team_a_total_score"] == 700 + 170 + 60 + 100
+    assert body["team_b_total_score"] == 70
+    assert body["status"] == "FINISHED"
+    assert body["winner_team"] == "A"
+    # 라운드 번호는 1부터 다시 매겨진다.
+    assert [r["round_number"] for r in body["rounds"]] == list(range(1, 11))
+
+    persisted = db.query(Match).filter(Match.id == match_id).one()
+    assert persisted.score_a == 1030
+    stats = db.query(MatchStats).filter(MatchStats.match_id == match_id).all()
+    assert len(stats) == 1
+    assert stats[0].round_number == 8
+    assert stats[0].is_tichu_succ is True
+
+
+def test_replace_rounds_rejects_invalid_round_without_saving(db, player_ids):
+    from core.properties import settings
+
+    match_id = _finished_match_with_rounds(db, player_ids, count=10)
+    rounds = [_round_json(n) for n in range(1, 10)] + [_round_json(10, 80, 30)]
+
+    with _record_edit_client(db) as client:
+        response = client.put(
+            f"/api/matches/{match_id}/rounds",
+            json={"rounds": rounds},
+            headers={"Authorization": settings.ADMIN_CODE},
+        )
+
+    assert response.status_code == 422
+    assert "ROUND 10" in response.json()["detail"]
+    db.expire_all()
+    persisted = db.query(Match).filter(Match.id == match_id).one()
+    assert len(persisted.rounds) == 10
+    assert persisted.score_a == 1000
+    assert persisted.status == "FINISHED"
+
+
+@pytest.mark.parametrize("headers", [{}, {"Authorization": "wrong-code"}])
+def test_replace_rounds_requires_admin(db, player_ids, headers):
+    match_id = _finished_match_with_rounds(db, player_ids, count=10)
+
+    with _record_edit_client(db) as client:
+        response = client.put(
+            f"/api/matches/{match_id}/rounds",
+            json={"rounds": []},
+            headers=headers,
+        )
+
+    assert response.status_code in (401, 403)
+    db.expire_all()
+    persisted = db.query(Match).filter(Match.id == match_id).one()
+    assert len(persisted.rounds) == 10

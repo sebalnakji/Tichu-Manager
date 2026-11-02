@@ -21,8 +21,10 @@ from dto.match import (
     MatchDetailResponse,
     MatchStateResponse,
     RoundScoreRequest,
+    RoundsReplaceRequest,
     PlayerInfo
 )
+from routers.admin import verify_admin
 
 router = APIRouter(prefix="/api/matches", tags=["Matches"])
 logger = get_logger(__name__)
@@ -446,6 +448,82 @@ def update_round_score(
 
     # add_round_score를 재사용 (같은 로직)
     return add_round_score(match_id, round_data, db)
+
+
+@router.put("/{match_id}/rounds", response_model=MatchStateResponse)
+def replace_rounds(
+    match_id: int,
+    request: RoundsReplaceRequest,
+    db: Session = Depends(get_db),
+    _: bool = Depends(verify_admin),
+):
+    """
+    관리자 기록 수정: 라운드 전체를 한 번에 저장 (관리자 전용)
+    - 요청 순서대로 라운드 번호를 1부터 다시 매긴다.
+    - 라운드 기록, 티츄 통계, 총점, 승자를 한 트랜잭션으로 교체한다.
+    """
+    match = (
+        db.query(Match)
+        .filter(Match.id == match_id)
+        .with_for_update()
+        .first()
+    )
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"매치 ID {match_id}를 찾을 수 없습니다."
+        )
+
+    new_rounds = []
+    for round_number, round_data in enumerate(request.rounds, start=1):
+        event_data = [event.model_dump() for event in round_data.events]
+        try:
+            ScoreService.validate_round(
+                round_number,
+                round_data.team_a_base_score,
+                round_data.team_b_base_score,
+                event_data,
+                match.team_a_ids,
+                match.team_b_ids,
+                round_data.direct,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"ROUND {round_data.round_number}: {exc}",
+            ) from exc
+
+        new_rounds.append({
+            "round": round_number,
+            "team_a_base": round_data.team_a_base_score,
+            "team_b_base": round_data.team_b_base_score,
+            "events": event_data,
+            "direct": round_data.direct,
+        })
+
+    match.rounds = new_rounds
+    flag_modified(match, "rounds")
+
+    # 티츄 통계는 라운드 번호가 바뀔 수 있으므로 매치 단위로 다시 만든다.
+    db.query(MatchStats).filter(MatchStats.match_id == match_id).delete()
+    for round_data in new_rounds:
+        ScoreService.save_round_stats(
+            match_id,
+            round_data["round"],
+            round_data["events"],
+            db,
+        )
+
+    ScoreService.update_match_total_score(match)
+    db.flush()
+    response = _build_match_state(match)
+    db.commit()
+
+    logger.info(
+        f"기록 수정 저장: 매치 ID {match_id}, 라운드 {len(new_rounds)}개, "
+        f"A={match.score_a}, B={match.score_b}, 상태={match.status}"
+    )
+    return response
 
 
 @router.delete(

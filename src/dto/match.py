@@ -25,6 +25,11 @@ class RoundScoreRequest(BaseModel):
     direct: bool = False  # 직접 입력 여부
 
 
+class RoundsReplaceRequest(BaseModel):
+    """관리자 기록 수정: 라운드 전체 일괄 저장 요청"""
+    rounds: List[RoundScoreRequest]
+
+
 class RoundScoreResponse(BaseModel):
     """라운드 점수 응답"""
     round_number: int

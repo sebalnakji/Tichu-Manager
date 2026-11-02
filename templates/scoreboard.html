@@ -354,6 +354,15 @@
     <!-- 하단 점수 입력 패널 -->
     <div id="input-panel" class="shrink-0 max-w-lg mx-auto w-full" style="background-color:var(--bg-main); border-top: 2px solid var(--border);">
 
+        <!-- 기록 수정 모드 저장 바 (관리자 > 잘못된 기록 수정으로 진입 시) -->
+        <div id="record-edit-bar" class="hidden px-4 pt-3">
+            <div class="flex items-center gap-2 rounded-xl px-3 py-2" style="background-color:var(--accent-light);">
+                <p id="record-edit-summary" class="flex-1 text-xs font-bold truncate" style="color:var(--accent);">변경 사항 없음</p>
+                <button onclick="revertRecordEdit()" class="flex-none text-xs font-bold px-3 py-2.5 rounded-lg transition" style="background-color:var(--bg-card); color:var(--text-secondary);">되돌리기</button>
+                <button onclick="commitRecordEdit()" class="flex-none text-xs font-bold px-4 py-2.5 rounded-lg text-white transition" style="background-color:var(--accent);">수정하기</button>
+            </div>
+        </div>
+
         <!-- 태그 영역 -->
         <div id="event-tags" class="hidden px-4 pt-2 flex flex-wrap gap-1"></div>
 
@@ -388,7 +397,7 @@
             <!-- 초기화 / 저장 -->
             <div class="flex gap-2 pb-4">
                 <button onclick="resetInput()" class="flex-none text-sm font-bold py-3 px-4 rounded-xl transition" style="background-color:var(--bg-card-sub); color:var(--text-muted);">초기화</button>
-                <button onclick="saveRound()" class="flex-1 text-sm font-bold py-3 rounded-xl text-white transition" style="background-color:#10B981; box-shadow:0 4px 12px rgba(16,185,129,0.3);">저장하기</button>
+                <button id="round-save-btn" onclick="saveRound()" class="flex-1 text-sm font-bold py-3 rounded-xl text-white transition" style="background-color:#10B981; box-shadow:0 4px 12px rgba(16,185,129,0.3);">저장하기</button>
             </div>
         </div>
     </div>
@@ -509,7 +518,10 @@
 {% block extra_scripts %}
 <script>
     const matchId = {{ match_id }};
+    // 관리자 > 잘못된 기록 수정으로 진입한 경우: 변경을 모아두었다가 "수정하기"로 한 번에 저장
+    const IS_RECORD_EDIT = {{ 'true' if request.query_params.get('return_to') == 'match-edit' else 'false' }};
     let matchData = null;
+    let originalRounds = [];
     let currentRoundNumber = null;
     let events = [];
     const SESSION_KEY = 'tichu_current_session_stats';
@@ -518,6 +530,10 @@
         initSessionStats();
         loadMatchData();
         document.getElementById('exit-game-btn').addEventListener('click', showExitModal);
+        if (IS_RECORD_EDIT) {
+            document.getElementById('record-edit-bar').classList.remove('hidden');
+            document.getElementById('round-save-btn').textContent = '라운드 반영';
+        }
     });
 
     function initSessionStats() {
@@ -530,11 +546,171 @@
         try {
             const response = await fetch(`/api/matches/${matchId}`);
             matchData = await response.json();
+            if (IS_RECORD_EDIT) originalRounds = JSON.parse(JSON.stringify(matchData.rounds));
             renderTeamInfo();
             renderRounds();
             initInputPanel();
             renderEventBtnGrid();
+            renderRecordEditBar();
         } catch (error) { console.error('Error:', error); }
+    }
+
+    // 다음 새 라운드 번호 (기록 수정 중에는 삭제된 번호를 재사용하지 않음)
+    function nextRoundNumber() {
+        const numbers = matchData.rounds.map(r => r.round_number);
+        if (IS_RECORD_EDIT) numbers.push(...originalRounds.map(r => r.round_number));
+        return numbers.length > 0 ? Math.max(...numbers) + 1 : 1;
+    }
+
+    // ── 기록 수정 모드 (화면에서만 변경 → "수정하기"로 일괄 저장) ──
+    function calcRoundTotals(round) {
+        const roundEvents = round.events || [];
+        let bonusA = 0, bonusB = 0;
+        roundEvents.forEach(e => {
+            if (e.type !== 'tichu' && e.type !== 'grand') return;
+            const value = (e.type === 'tichu' ? 100 : 200) * (e.success ? 1 : -1);
+            if (matchData.team_a_ids.includes(e.player_id)) bonusA += value; else bonusB += value;
+        });
+        const oneTwo = roundEvents.find(e => e.type === 'one_two');
+        const baseA = oneTwo ? (oneTwo.team === 'A' ? 200 : 0) : round.team_a_base_score;
+        const baseB = oneTwo ? (oneTwo.team === 'B' ? 200 : 0) : round.team_b_base_score;
+        return { team_a_total: baseA + bonusA, team_b_total: baseB + bonusB };
+    }
+
+    function cleanEvents(list) {
+        return (list || []).map(e => ({
+            type: e.type,
+            player_id: e.player_id ?? null,
+            team: e.team ?? null,
+            success: e.success ?? null,
+            text: e.text ?? null,
+        }));
+    }
+
+    function roundSignature(round) {
+        return JSON.stringify([
+            round.team_a_base_score,
+            round.team_b_base_score,
+            !!round.direct,
+            cleanEvents(round.events),
+        ]);
+    }
+
+    function getRoundChange(round) {
+        if (!IS_RECORD_EDIT) return null;
+        const original = originalRounds.find(r => r.round_number === round.round_number);
+        if (!original) return 'added';
+        return roundSignature(original) === roundSignature(round) ? null : 'modified';
+    }
+
+    function getRecordChanges() {
+        const currentNumbers = matchData.rounds.map(r => r.round_number);
+        return {
+            deleted: originalRounds.map(r => r.round_number).filter(n => !currentNumbers.includes(n)),
+            modified: matchData.rounds.filter(r => getRoundChange(r) === 'modified').map(r => r.round_number),
+            added: matchData.rounds.filter(r => getRoundChange(r) === 'added').map(r => r.round_number),
+        };
+    }
+
+    function applyDraft() {
+        let totalA = 0, totalB = 0;
+        matchData.rounds.forEach(r => {
+            const totals = calcRoundTotals(r);
+            r.team_a_total = totals.team_a_total;
+            r.team_b_total = totals.team_b_total;
+            totalA += totals.team_a_total;
+            totalB += totals.team_b_total;
+        });
+        matchData.rounds.sort((a, b) => a.round_number - b.round_number);
+        matchData.team_a_total_score = totalA;
+        matchData.team_b_total_score = totalB;
+        renderTeamInfo();
+        renderRounds();
+        renderRecordEditBar();
+    }
+
+    function upsertDraftRound(data) {
+        const round = {
+            round_number: data.round_number,
+            team_a_base_score: data.team_a_base_score,
+            team_b_base_score: data.team_b_base_score,
+            events: cleanEvents(data.events),
+            direct: !!data.direct,
+        };
+        const idx = matchData.rounds.findIndex(r => r.round_number === round.round_number);
+        if (idx !== -1) matchData.rounds[idx] = round; else matchData.rounds.push(round);
+        applyDraft();
+    }
+
+    function finalResultText(a, b) {
+        if ((a >= 1000 || b >= 1000) && a !== b) return `${a} : ${b}, ${a > b ? 'TEAM A' : 'TEAM B'} 승리`;
+        return `${a} : ${b}, 승자 없음`;
+    }
+
+    function renderRecordEditBar() {
+        if (!IS_RECORD_EDIT || !matchData) return;
+        const c = getRecordChanges();
+        const count = c.deleted.length + c.modified.length + c.added.length;
+        const score = `${matchData.team_a_total_score} : ${matchData.team_b_total_score}`;
+        document.getElementById('record-edit-summary').textContent =
+            count > 0 ? `변경 ${count}건 · ${score}` : `변경 사항 없음 · ${score}`;
+    }
+
+    function revertRecordEdit() {
+        if (getRecordChangesCount() === 0) return;
+        if (!confirm('수정한 내용을 모두 되돌릴까요?')) return;
+        matchData.rounds = JSON.parse(JSON.stringify(originalRounds));
+        applyDraft();
+        initInputPanel();
+    }
+
+    function getRecordChangesCount() {
+        const c = getRecordChanges();
+        return c.deleted.length + c.modified.length + c.added.length;
+    }
+
+    async function commitRecordEdit() {
+        const c = getRecordChanges();
+        if (c.deleted.length + c.modified.length + c.added.length === 0) {
+            alert('변경된 내용이 없습니다.');
+            return;
+        }
+        const lines = [
+            ...c.deleted.map(n => `· ROUND ${n} 삭제`),
+            ...c.modified.map(n => `· ROUND ${n} 점수 변경`),
+            ...c.added.map(n => `· ROUND ${n} 추가`),
+        ];
+        const result = finalResultText(matchData.team_a_total_score, matchData.team_b_total_score);
+        const renumberNote = (c.deleted.length > 0 || c.added.length > 0)
+            ? '\n(저장 후 라운드 번호는 1번부터 순서대로 다시 매겨집니다)'
+            : '';
+        if (!confirm(`다음 내용으로 수정하시겠습니까?\n\n${lines.join('\n')}\n\n최종 ${result}${renumberNote}`)) return;
+
+        const rounds = [...matchData.rounds]
+            .sort((a, b) => a.round_number - b.round_number)
+            .map(r => ({
+                round_number: r.round_number,
+                team_a_base_score: r.team_a_base_score,
+                team_b_base_score: r.team_b_base_score,
+                events: cleanEvents(r.events),
+                direct: !!r.direct,
+            }));
+
+        try {
+            const res = await fetch(`/api/matches/${matchId}/rounds`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': AuthManager.getAdminCode() },
+                body: JSON.stringify({ rounds }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(typeof err.detail === 'string' ? err.detail : '입력값을 확인해주세요.');
+            }
+            alert('수정되었습니다.');
+            window.location.href = '/settings?open=match-edit';
+        } catch (e) {
+            alert('수정 실패: ' + e.message);
+        }
     }
 
     function applyMatchState(state) {
@@ -557,7 +733,7 @@
 
     // ── 입력 패널 초기화 ──
     function initInputPanel() {
-        currentRoundNumber = matchData.rounds.length > 0 ? Math.max(...matchData.rounds.map(r => r.round_number)) + 1 : 1;
+        currentRoundNumber = nextRoundNumber();
         events = [];
         setSliders(50, 50, false);
         renderEventBtnGrid();
@@ -732,6 +908,10 @@
         [...matchData.rounds].sort((a, b) => b.round_number - a.round_number).forEach(round => {
             const div = document.createElement('div');
             div.className = 'round-card';
+            const change = getRoundChange(round);
+            const changeBadge = change
+                ? `<span class="ml-1.5 text-[10px] font-black px-1.5 py-0.5 rounded-md" style="background-color:var(--accent-light); color:var(--accent);">${change === 'added' ? '추가됨' : '변경됨'}</span>`
+                : '';
             let eventBadges = '';
             round.events.forEach(e => {
                 const p = [...matchData.team_a_players, ...matchData.team_b_players].find(x => x.id === e.player_id);
@@ -749,7 +929,7 @@
             });
             div.innerHTML = `
                 <div class="relative">
-                    <span class="text-xs font-bold round-label">ROUND ${round.round_number}</span>
+                    <span class="text-xs font-bold round-label">ROUND ${round.round_number}</span>${changeBadge}
                     <div class="absolute right-0 top-0 flex flex-col gap-1">
                         <button onclick="${round.direct ? `openDirectModal(${round.round_number})` : `loadRoundToPanel(${round.round_number})`}" class="text-xs font-bold px-2 py-1 rounded-full transition round-edit-btn">수정</button>
                         <button onclick="deleteRound(${round.round_number})" class="text-xs font-bold px-2 py-1 rounded-full transition round-delete-btn">삭제</button>
@@ -835,7 +1015,7 @@
         const score = parseInt(scoreVal) * directState.sign;
         const badgeText = document.getElementById('direct-badge').value.trim();
         const events = badgeText ? [{ type: 'custom', text: badgeText }] : [];
-        const roundNumber = directState.editingRound ?? (matchData.rounds.length > 0 ? Math.max(...matchData.rounds.map(r => r.round_number)) + 1 : 1);
+        const roundNumber = directState.editingRound ?? nextRoundNumber();
 
         const data = {
             round_number: roundNumber,
@@ -844,6 +1024,13 @@
             events,
             direct: true
         };
+
+        if (IS_RECORD_EDIT) {
+            upsertDraftRound(data);
+            resetInput();
+            closeDirectModal();
+            return;
+        }
 
         try {
             const res = await fetch(`/api/matches/${matchId}/rounds`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
@@ -860,6 +1047,13 @@
     }
 
     async function deleteRound(roundNumber) {
+        if (IS_RECORD_EDIT) {
+            // 화면에서만 제거, "수정하기"를 눌러야 저장됨 (되돌리기 가능)
+            matchData.rounds = matchData.rounds.filter(r => r.round_number !== roundNumber);
+            applyDraft();
+            if (currentRoundNumber === roundNumber) resetInput();
+            return;
+        }
         if (!confirm(`ROUND ${roundNumber}을 삭제하시겠습니까?`)) return;
         try {
             const res = await fetch(`/api/matches/${matchId}/rounds/${roundNumber}`, { method: 'DELETE' });
@@ -875,7 +1069,7 @@
 
     function resetInput() {
         events = [];
-        currentRoundNumber = matchData.rounds.length > 0 ? Math.max(...matchData.rounds.map(r => r.round_number)) + 1 : 1;
+        currentRoundNumber = nextRoundNumber();
         setSliders(50, 50, false);
         renderEventBtnGrid();
         renderTags();
@@ -918,6 +1112,11 @@
         }
 
         const data = { round_number: currentRoundNumber, team_a_base_score: teamABase, team_b_base_score: teamBBase, events };
+        if (IS_RECORD_EDIT) {
+            upsertDraftRound(data);
+            initInputPanel();
+            return;
+        }
         try {
             const res = await fetch(`/api/matches/${matchId}/rounds`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
             if (!res.ok) throw new Error((await res.json()).detail);
