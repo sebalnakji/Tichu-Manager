@@ -210,6 +210,32 @@ class ScoreService:
 
 
     @staticmethod
+    def calculate_totals(
+        rounds: List[dict],
+        team_a_ids: List[int],
+        team_b_ids: List[int],
+    ) -> tuple[int, int]:
+        """저장 형식의 라운드 목록으로 양 팀 총점을 계산한다."""
+        total_a = 0
+        total_b = 0
+        for round_data in rounds:
+            result = ScoreService.calculate_round_score(
+                round_data.get("team_a_base", 0),
+                round_data.get("team_b_base", 0),
+                round_data.get("events", []),
+                team_a_ids,
+                team_b_ids,
+            )
+            total_a += result["team_a_total"]
+            total_b += result["team_b_total"]
+        return total_a, total_b
+
+    @staticmethod
+    def is_finished(total_a: int, total_b: int) -> bool:
+        """한 팀 이상이 1000점에 도달했더라도 동점이면 다음 라운드를 진행한다."""
+        return (total_a >= 1000 or total_b >= 1000) and total_a != total_b
+
+    @staticmethod
     def update_match_total_score(match: Match):
         """
         매치의 총점 계산 및 업데이트
@@ -218,25 +244,14 @@ class ScoreService:
         Args:
             match: 업데이트할 매치
         """
-        total_a = 0
-        total_b = 0
-
-        for round_data in match.rounds:
-            result = ScoreService.calculate_round_score(
-                round_data.get("team_a_base", 0),
-                round_data.get("team_b_base", 0),
-                round_data.get("events", []),
-                match.team_a_ids,
-                match.team_b_ids
-            )
-            total_a += result["team_a_total"]
-            total_b += result["team_b_total"]
+        total_a, total_b = ScoreService.calculate_totals(
+            match.rounds or [], match.team_a_ids, match.team_b_ids
+        )
 
         match.score_a = total_a
         match.score_b = total_b
 
-        # 한 팀 이상이 1000점에 도달했더라도 동점이면 다음 라운드를 진행한다.
-        if (total_a >= 1000 or total_b >= 1000) and total_a != total_b:
+        if ScoreService.is_finished(total_a, total_b):
             match.status = "FINISHED"
             match.winner_team = "A" if total_a > total_b else "B"
         else:

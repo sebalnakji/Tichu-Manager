@@ -508,3 +508,43 @@ def test_replace_rounds_requires_admin(db, player_ids, headers):
     db.expire_all()
     persisted = db.query(Match).filter(Match.id == match_id).one()
     assert len(persisted.rounds) == 10
+
+
+@pytest.mark.parametrize(
+    "rounds_builder, expected_score",
+    [
+        # 마지막 라운드 삭제 → 900 : 0 (1000점 미만)
+        (lambda: [_round_json(n) for n in range(1, 10)], "900 : 0"),
+        # 1000 : 1000 동점
+        (
+            lambda: [_round_json(n, 50, 50) for n in range(1, 21)],
+            "1000 : 1000",
+        ),
+    ],
+)
+def test_replace_rounds_rejects_unfinished_result_without_saving(
+    db,
+    player_ids,
+    rounds_builder,
+    expected_score,
+):
+    from core.properties import settings
+
+    match_id = _finished_match_with_rounds(db, player_ids, count=10)
+
+    with _record_edit_client(db) as client:
+        response = client.put(
+            f"/api/matches/{match_id}/rounds",
+            json={"rounds": rounds_builder()},
+            headers={"Authorization": settings.ADMIN_CODE},
+        )
+
+    assert response.status_code == 422
+    assert "1000점 이상" in response.json()["detail"]
+    assert expected_score in response.json()["detail"]
+    db.expire_all()
+    persisted = db.query(Match).filter(Match.id == match_id).one()
+    assert len(persisted.rounds) == 10
+    assert persisted.score_a == 1000
+    assert persisted.status == "FINISHED"
+    assert persisted.winner_team == "A"

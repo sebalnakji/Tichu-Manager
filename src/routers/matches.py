@@ -460,6 +460,7 @@ def replace_rounds(
     """
     관리자 기록 수정: 라운드 전체를 한 번에 저장 (관리자 전용)
     - 요청 순서대로 라운드 번호를 1부터 다시 매긴다.
+    - 결과가 종료 조건(1000점 이상 + 동점 아님)을 만족해야 저장한다.
     - 라운드 기록, 티츄 통계, 총점, 승자를 한 트랜잭션으로 교체한다.
     """
     match = (
@@ -500,6 +501,20 @@ def replace_rounds(
             "events": event_data,
             "direct": round_data.direct,
         })
+
+    # 수정 결과가 완료 경기가 아니면 저장하지 않는다
+    # (진행 중으로 바뀌면 기록 목록·랭킹에서 빠지고 미완료 정리 작업에 삭제될 수 있음)
+    total_a, total_b = ScoreService.calculate_totals(
+        new_rounds, match.team_a_ids, match.team_b_ids
+    )
+    if not ScoreService.is_finished(total_a, total_b):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "1000점 이상이면서 동점이 아닌 팀이 있어야 저장할 수 있습니다. "
+                f"라운드를 추가해주세요. (현재 {total_a} : {total_b})"
+            ),
+        )
 
     match.rounds = new_rounds
     flag_modified(match, "rounds")

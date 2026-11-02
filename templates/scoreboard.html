@@ -643,8 +643,7 @@
     }
 
     function finalResultText(a, b) {
-        if ((a >= 1000 || b >= 1000) && a !== b) return `${a} : ${b}, ${a > b ? 'TEAM A' : 'TEAM B'} 승리`;
-        return `${a} : ${b}, 승자 없음`;
+        return `${a} : ${b}, ${a > b ? 'TEAM A' : 'TEAM B'} 승리`;
     }
 
     function renderRecordEditBar() {
@@ -673,6 +672,11 @@
         const c = getRecordChanges();
         if (c.deleted.length + c.modified.length + c.added.length === 0) {
             alert('변경된 내용이 없습니다.');
+            return;
+        }
+        const totalA = matchData.team_a_total_score, totalB = matchData.team_b_total_score;
+        if (!((totalA >= 1000 || totalB >= 1000) && totalA !== totalB)) {
+            alert(`1000점 이상이면서 동점이 아닌 팀이 있어야 저장할 수 있습니다.\n라운드를 추가해주세요. (현재 ${totalA} : ${totalB})`);
             return;
         }
         const lines = [
