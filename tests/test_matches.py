@@ -610,3 +610,25 @@ def test_finished_match_still_allows_editing_existing_round(db, player_ids):
     assert result.status == "FINISHED"
     assert result.team_a_total_score == 1100
     assert len(result.rounds) == 10
+
+
+def test_match_detail_team_record_counts_this_season_only(db, player_ids):
+    year = date.today().year
+    # 올해: A팀(앞 두 명) 2승 1패, 작년: A팀 1승 (빠져야 함), 진행 중 경기도 제외
+    for winner in ("A", "A", "B"):
+        match_id = create_match(db, player_ids, status="FINISHED", play_date=date(year, 1, 1))
+        db.get(Match, match_id).winner_team = winner
+    create_match(db, player_ids, status="FINISHED", play_date=date(year - 1, 12, 31))
+    db.commit()
+    match_id = create_match(db, player_ids)
+
+    detail = get_match_detail(match_id, db)
+
+    assert (detail.team_a_team_games, detail.team_a_team_wins) == (3, 2)
+    assert detail.team_a_team_win_rate == 66.7
+    assert (detail.team_b_team_games, detail.team_b_team_wins) == (3, 1)
+    assert detail.team_b_team_win_rate == 33.3
+
+    body = _record_edit_client(db).get(f"/api/matches/{match_id}").json()
+    assert body["team_a_team_wins"] == 2
+    assert body["team_b_team_wins"] == 1

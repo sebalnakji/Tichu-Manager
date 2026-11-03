@@ -63,7 +63,8 @@ class MatchDetailResponse(BaseModel):
     team_a_players: List[PlayerInfo]
     team_a_total_score: int
     team_a_team_win_rate: float  # 팀 승률
-    team_a_team_games: int  # 함께한 게임 수
+    team_a_team_games: int  # 함께한 게임 수 (시즌)
+    team_a_team_wins: int = 0  # 함께 이긴 게임 수 (시즌)
 
     # 팀 B 정보
     team_b_ids: List[int]
@@ -71,6 +72,7 @@ class MatchDetailResponse(BaseModel):
     team_b_total_score: int
     team_b_team_win_rate: float
     team_b_team_games: int
+    team_b_team_wins: int = 0
 
     # 라운드 기록
     rounds: List[RoundScoreResponse]

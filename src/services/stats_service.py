@@ -219,9 +219,10 @@ class StatsService:
             if not player1 or not player2:
                 return None
 
+            # 점수판의 "시즌" 팀 승패·승률: 개인 통계와 같이 해당 연도 경기만
             team_matches = [
                 match
-                for match in finished_matches
+                for match in year_matches
                 if (
                     player1.id in match.team_a_ids
                     and player2.id in match.team_a_ids

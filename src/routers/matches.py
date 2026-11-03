@@ -383,11 +383,13 @@ def get_match_detail(match_id: int, db: Session = Depends(get_db)):
         team_a_total_score=match.score_a,
         team_a_team_win_rate=team_a_stats.win_rate if team_a_stats else 0.0,
         team_a_team_games=team_a_stats.total_games if team_a_stats else 0,
+        team_a_team_wins=team_a_stats.wins if team_a_stats else 0,
         team_b_ids=match.team_b_ids,
         team_b_players=team_b_players,
         team_b_total_score=match.score_b,
         team_b_team_win_rate=team_b_stats.win_rate if team_b_stats else 0.0,
         team_b_team_games=team_b_stats.total_games if team_b_stats else 0,
+        team_b_team_wins=team_b_stats.wins if team_b_stats else 0,
         rounds=_build_rounds(match),
         winner_team=match.winner_team
     )

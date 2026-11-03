@@ -324,7 +324,7 @@
                     </div>
                     <p id="team-a-score" class="text-4xl font-black tracking-tighter leading-none team-a-score-val">0</p>
                     <div class="flex items-center gap-1.5">
-                        <p id="team-a-session-record" class="text-xs font-bold session-record">0승 0패</p>
+                        <p id="team-a-season-record" class="text-xs font-bold session-record">0승 0패</p>
                         <span id="team-a-season-rate" class="text-[10px] font-bold px-2 py-0.5 rounded-full season-rate-a">시즌 0%</span>
                     </div>
                 </div>
@@ -340,7 +340,7 @@
                     </div>
                     <p id="team-b-score" class="text-4xl font-black tracking-tighter leading-none team-b-score-val">0</p>
                     <div class="flex items-center gap-1.5">
-                        <p id="team-b-session-record" class="text-xs font-bold session-record">0승 0패</p>
+                        <p id="team-b-season-record" class="text-xs font-bold session-record">0승 0패</p>
                         <span id="team-b-season-rate" class="text-[10px] font-bold px-2 py-0.5 rounded-full season-rate-b">시즌 0%</span>
                     </div>
                 </div>
@@ -739,9 +739,10 @@
         document.getElementById('team-b-score').textContent = matchData.team_b_total_score;
         document.getElementById('team-a-names').textContent = matchData.team_a_players.map(p => p.name).join(' · ');
         document.getElementById('team-b-names').textContent = matchData.team_b_players.map(p => p.name).join(' · ');
-        const stats = JSON.parse(sessionStorage.getItem(SESSION_KEY));
-        document.getElementById('team-a-session-record').textContent = `${stats.team_a_wins}승 ${stats.team_b_wins}패`;
-        document.getElementById('team-b-session-record').textContent = `${stats.team_b_wins}승 ${stats.team_a_wins}패`;
+        // 이 두 사람 팀의 올해 승패 (서버 기록, 진행 중인 판 제외)
+        const seasonRecord = (wins, games) => `${wins ?? 0}승 ${(games ?? 0) - (wins ?? 0)}패`;
+        document.getElementById('team-a-season-record').textContent = seasonRecord(matchData.team_a_team_wins, matchData.team_a_team_games);
+        document.getElementById('team-b-season-record').textContent = seasonRecord(matchData.team_b_team_wins, matchData.team_b_team_games);
         const aRate = matchData.team_a_team_win_rate ?? 0;
         const bRate = matchData.team_b_team_win_rate ?? 0;
         document.getElementById('team-a-season-rate').textContent = `시즌 ${aRate}%`;
