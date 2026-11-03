@@ -583,9 +583,10 @@
     function drawRank(points) {
         const card = document.getElementById('chart-rank');
         if (!points.length) { card.innerHTML = '<p class="text-xs font-bold t-muted text-center py-6">순위 기록이 없습니다</p>'; return; }
-        const { svg, width, height } = newSvg(card, 140);
+        const { svg, width, height } = newSvg(card, 160);
         const maxRank = Math.max(...points.map(p => p.ranked), 2);
-        const left = 30, right = 34, top = 10, bottom = 18;
+        // 위·아래 여유: 순위 라벨이 점 위(오를 때)·아래(내려갈 때)에 들어갈 자리
+        const left = 30, right = 34, top = 22, bottom = 36;
         const plotW = width - left - right, plotH = height - top - bottom;
         const x = i => left + (points.length === 1 ? plotW / 2 : i / (points.length - 1) * plotW);
         const y = r => top + (r - 1) / (maxRank - 1) * plotH;
@@ -597,6 +598,24 @@
         svgEl('path', { d: xs.map((px, i) => `${i ? 'L' : 'M'}${px},${ys[i]}`).join(''), fill: 'none', stroke: css('--chart-me'), 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
         if (points.length <= 30) points.forEach((_, i) => svgEl('circle', { cx: xs[i], cy: ys[i], r: 2.5, fill: css('--chart-me') }, svg));
         const last = points.length - 1;
+        // 순위가 바뀐 지점(첫 지점 포함)에 "N위" 표시, 서로 너무 가까우면 생략
+        let lastLabelX = -Infinity;
+        points.forEach((p, i) => {
+            if (i === last || (i > 0 && p.rank === points[i - 1].rank)) return;
+            if (xs[i] - lastLabelX < 22 || xs[last] - xs[i] < 26) return;
+            // 선이 지나가지 않는 빈 쪽에 놓기 (화면 y: 작을수록 위 = 좋은 순위)
+            const prevY = i > 0 ? ys[i - 1] : null, nextY = ys[i + 1];
+            const fromBelow = prevY !== null && prevY > ys[i], fromAbove = prevY !== null && prevY < ys[i];
+            const toAbove = nextY < ys[i], toBelow = nextY > ys[i];
+            let pos;
+            if (i === 0) pos = toAbove ? [4, 15, 'start'] : [4, -8, 'start'];   // 첫 점: 축 라벨 피해 오른쪽
+            else if (fromBelow && toAbove) pos = [-5, -5, 'end'];               // 오르는 중: 왼쪽 위
+            else if (fromAbove && toBelow) pos = [5, -5, 'start'];              // 내려가는 중: 오른쪽 위
+            else if (fromAbove) pos = [0, 15, 'middle'];                         // 골짜기: 아래
+            else pos = [0, -8, 'middle'];                                        // 봉우리: 위
+            svgEl('text', { x: xs[i] + pos[0], y: ys[i] + pos[1], 'text-anchor': pos[2], class: 'value-label' }, svg).textContent = `${p.rank}위`;
+            lastLabelX = xs[i];
+        });
         svgEl('circle', { cx: xs[last], cy: ys[last], r: 4, fill: css('--chart-me'), stroke: css('--bg-card'), 'stroke-width': 2 }, svg);
         svgEl('text', { x: xs[last] + 6, y: ys[last] + 3, class: 'value-label' }, svg).textContent = `${points[last].rank}위`;
         const day = iso => { const [, m, d] = iso.split('-').map(Number); return `${m}/${d}`; };
@@ -606,7 +625,7 @@
         attachLineTip(card, svg, xs, ys, i => `${day(points[i].date)} · ${points[i].rank}위 / ${points[i].ranked}명`);
     }
 
-    // 📊 점수 차 분포: 가운데 기준 왼쪽 = 패(큰 차이일수록 바깥), 오른쪽 = 승, 막대마다 판 수
+    // 📊 점수 차 분포: 가운데 기준 왼쪽 = 패, 오른쪽 = 승 (큰 차이일수록 바깥), 막대마다 판 수
     function drawMargins(m) {
         const card = document.getElementById('chart-margin');
         const { svg, width, height } = newSvg(card, 150);
@@ -636,7 +655,7 @@
         svg.setAttribute('aria-label', `점수 차 분포: 패 ${loss}판, 승 ${win}판`);
         const caption = document.createElement('div');
         caption.className = 'chart-caption';
-        caption.innerHTML = `<span>← 패 ${loss}판 (큰 차이일수록 바깥)</span><span>승 ${win}판 →</span>`;
+        caption.innerHTML = `<span>← 패 ${loss}판</span><span>승 ${win}판 →</span>`;
         card.appendChild(caption);
     }
 
