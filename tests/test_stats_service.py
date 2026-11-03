@@ -242,3 +242,49 @@ def test_leaderboard_api_includes_recent_form(client, db, player_ids):
     teams = client.get(f"/api/stats/leaderboard/teams?season={SEASON}").json()
     team = next(t["stats"] for t in teams if t["stats"]["player1_id"] == min(a))
     assert team["recent_results"] == ["W", "W"]
+
+
+def test_single_pass_rankings_match_per_player_and_per_team_calculation(db):
+    """랭킹(한 번 훑기)이 한 사람·한 팀씩 따로 계산한 결과와 숫자가 모두 같은지"""
+    import random
+    from itertools import combinations
+
+    rng = random.Random(7)
+    players = [Player(name=f"eq-{i}", code=f"eq-code-{i}", profile_url="") for i in range(6)]
+    db.add_all(players)
+    db.commit()
+    ids = [p.id for p in players]
+    for index in range(120):
+        four = rng.sample(ids, 4)
+        match = Match(
+            play_date=START + timedelta(days=index // 4),
+            team_a_ids=four[:2], team_b_ids=four[2:],
+            status="FINISHED", winner_team=rng.choice("AB"), rounds=[],
+        )
+        db.add(match)
+        db.flush()
+        for player_id in rng.sample(four, rng.randint(0, 3)):
+            kind = rng.choice(["tichu", "tichu", "grand"])
+            success = rng.random() < 0.6
+            db.add(MatchStats(
+                match_id=match.id, player_id=player_id, round_number=1,
+                is_tichu_try=kind == "tichu", is_tichu_succ=kind == "tichu" and success,
+                is_grand_try=kind == "grand", is_grand_succ=kind == "grand" and success,
+            ))
+    db.add(Match(play_date=START, team_a_ids=ids[:2], team_b_ids=ids[2:4], status="PLAYING", rounds=[]))
+    db.commit()
+
+    for season in (SEASON, None):
+        bulk = {s.player_id: s for s in StatsService.get_all_player_stats(db, season)}
+        for player_id in ids:
+            assert bulk[player_id] == StatsService.get_player_stats(player_id, db, season)
+
+        team_board = StatsService.get_team_leaderboard(db, season)
+        expected = [
+            StatsService.get_team_stats(a, b, db, season)
+            for a, b in combinations(ids, 2)
+        ]
+        expected = [t for t in expected if t.total_games > 0]
+        assert sorted(team_board, key=lambda t: (t.player1_id, t.player2_id)) == \
+            sorted(expected, key=lambda t: (t.player1_id, t.player2_id))
+        assert len(team_board) == len(expected) > 0

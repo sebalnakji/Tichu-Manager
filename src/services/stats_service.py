@@ -5,6 +5,7 @@ Stats Service
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
+from collections import defaultdict
 from itertools import combinations
 
 from core import season as season_rules
@@ -20,6 +21,22 @@ MATCH_SUMMARY_COLUMNS = (
     Match.team_b_ids,
     Match.winner_team,
 )
+
+# 통계에 필요한 티츄 기록 칸만 (ORM 객체를 만들지 않아 수천 건에서도 가벼움)
+MATCH_STATS_COLUMNS = (
+    MatchStats.match_id,
+    MatchStats.player_id,
+    MatchStats.is_tichu_try,
+    MatchStats.is_tichu_succ,
+    MatchStats.is_grand_try,
+    MatchStats.is_grand_succ,
+)
+
+
+def _team_key(team_ids) -> Optional[tuple]:
+    """2인 팀을 순서와 무관한 키로 (예: [7, 3] → (3, 7))"""
+    unique = set(team_ids)
+    return tuple(sorted(unique)) if len(unique) == 2 else None
 
 
 class StatsService:
@@ -160,9 +177,11 @@ class StatsService:
         return query.order_by(Match.play_date.desc(), Match.id.desc()).limit(20).all()
 
     @staticmethod
-    def _get_match_stats(db: Session, season: Optional[int]) -> List[MatchStats]:
-        query = db.query(MatchStats).join(Match).filter(
-            Match.status == "FINISHED"
+    def _get_match_stats(db: Session, season: Optional[int]) -> list:
+        query = (
+            db.query(*MATCH_STATS_COLUMNS)
+            .join(Match, Match.id == MatchStats.match_id)
+            .filter(Match.status == "FINISHED")
         )
         if season:
             query = StatsService._filter_query_by_season(
@@ -191,7 +210,7 @@ class StatsService:
             .all()
         )
         all_stats = (
-            db.query(MatchStats)
+            db.query(*MATCH_STATS_COLUMNS)
             .filter(MatchStats.player_id.in_(player_ids))
             .all()
         )
@@ -268,22 +287,29 @@ class StatsService:
         db: Session,
         season: Optional[int] = None,
     ) -> List[PlayerStats]:
-        """모든 개인 통계를 고정된 네 번의 DB 조회로 계산한다."""
+        """모든 개인 통계를 고정된 네 번의 DB 조회로 계산한다.
+
+        경기를 한 번 훑어 사람별로 자기 경기만 나눠 계산한다 (사람마다 전체를 다시 훑지 않음).
+        """
         players = db.query(Player).all()
         matches = StatsService._get_finished_matches(db, season)
         recent_matches = StatsService._get_recent_matches(db, season)
         all_tichu_stats = StatsService._get_match_stats(db, season)
 
-        stats_by_player: dict[int, List[MatchStats]] = {}
+        matches_by_player: dict[int, list] = defaultdict(list)
+        for match in matches:
+            for player_id in set(match.team_a_ids) | set(match.team_b_ids):
+                matches_by_player[player_id].append(match)
+        stats_by_player: dict[int, list] = defaultdict(list)
         for stat in all_tichu_stats:
-            stats_by_player.setdefault(stat.player_id, []).append(stat)
+            stats_by_player[stat.player_id].append(stat)
 
         return [
             StatsService._build_player_stats(
                 player,
-                matches,
+                matches_by_player[player.id],
                 recent_matches,
-                stats_by_player.get(player.id, []),
+                stats_by_player[player.id],
             )
             for player in players
         ]
@@ -312,8 +338,8 @@ class StatsService:
         matches = StatsService._get_finished_matches(db, season)
         recent_matches = StatsService._get_recent_matches(db, season)
         stats_query = (
-            db.query(MatchStats)
-            .join(Match)
+            db.query(*MATCH_STATS_COLUMNS)
+            .join(Match, Match.id == MatchStats.match_id)
             .filter(
                 MatchStats.player_id == player_id,
                 Match.status == "FINISHED",
@@ -447,7 +473,7 @@ class StatsService:
         ]
         match_ids = {match.id for match in team_matches}
         tichu_stats = (
-            db.query(MatchStats)
+            db.query(*MATCH_STATS_COLUMNS)
             .filter(
                 MatchStats.match_id.in_(match_ids),
                 MatchStats.player_id.in_([player1_id, player2_id]),
@@ -520,28 +546,30 @@ class StatsService:
         players = db.query(Player).all()
         matches = StatsService._get_finished_matches(db, season)
         all_tichu_stats = StatsService._get_match_stats(db, season)
-        team_combinations = list(combinations(players, 2))
+
+        # 경기를 한 번 훑어 팀(두 사람)별로 나누고, 티츄 기록은 경기별로 묶어 둔다
+        matches_by_team: dict[tuple, list] = defaultdict(list)
+        for match in matches:
+            for team_ids in (match.team_a_ids, match.team_b_ids):
+                key = _team_key(team_ids)
+                if key:
+                    matches_by_team[key].append(match)
+        stats_by_match: dict[int, list] = defaultdict(list)
+        for stat in all_tichu_stats:
+            stats_by_match[stat.match_id].append(stat)
 
         stats_list = []
-        for player1, player2 in team_combinations:
-            team_matches = [
-                match
-                for match in matches
-                if (
-                    player1.id in match.team_a_ids
-                    and player2.id in match.team_a_ids
-                )
-                or (
-                    player1.id in match.team_b_ids
-                    and player2.id in match.team_b_ids
-                )
-            ]
-            match_ids = {match.id for match in team_matches}
+        # 같은 순서(조합 순)로 돌아야 동률일 때 정렬 결과도 지금과 같다
+        for player1, player2 in combinations(players, 2):
+            team_matches = matches_by_team.get(_team_key((player1.id, player2.id)), [])
+            if not team_matches:
+                continue
+            pair = {player1.id, player2.id}
             team_tichu_stats = [
                 stat
-                for stat in all_tichu_stats
-                if stat.match_id in match_ids
-                and stat.player_id in {player1.id, player2.id}
+                for match in team_matches
+                for stat in stats_by_match.get(match.id, [])
+                if stat.player_id in pair
             ]
             stats = StatsService._build_team_stats(
                 player1,
