@@ -35,6 +35,7 @@
         --badge-lose-text: #B91C1C;
         --form-win: #10B981;
         --form-lose: #EF4444;
+        --form-empty: #9CA3AF;
 
         --tab-inactive: #9CA3AF;
         --spinner-color: var(--accent);
@@ -71,6 +72,7 @@
         --badge-lose-text: #F87171;
         --form-win: #10B981;
         --form-lose: #EF4444;
+        --form-empty: #6B7280;
 
         --tab-inactive: #6B7280;
         --spinner-color: var(--accent);
@@ -162,6 +164,7 @@
     .form-dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; }
     .form-dot.win { background-color: var(--form-win); }
     .form-dot.lose { background-color: var(--form-lose); }
+    .form-dot.empty { border: 1.5px solid var(--form-empty); }  /* 아직 없는 경기 칸 */
 
     .empty-state { color: var(--text-muted); }
     .error-state { color: #F43F5E; font-size: 0.75rem; }
@@ -284,12 +287,14 @@
             : `<span class="badge badge-lose shrink-0">${-streak}연패</span>`;
     }
 
-    // 최근 5경기 점: 초록 = 승, 빨강 = 패, 오른쪽이 가장 최근
+    // 최근 5경기 점: 초록 = 승, 빨강 = 패, 왼쪽(오래된 경기)부터 채우고 5경기 미만이면 남은 칸은 빈 동그라미
+    const FORM_SLOTS = 5;
     function formDots(results) {
-        if (!results || results.length === 0) return '';
-        const label = results.map(r => r === 'W' ? '승' : '패').join(' ');
-        const dots = results.map(r => `<span class="form-dot ${r === 'W' ? 'win' : 'lose'}"></span>`).join('');
-        return `<span class="form-dots" role="img" aria-label="최근 ${results.length}경기: ${label}">${dots}</span>`;
+        results = results || [];
+        const label = results.length ? results.map(r => r === 'W' ? '승' : '패').join(' ') : '없음';
+        const filled = results.map(r => `<span class="form-dot ${r === 'W' ? 'win' : 'lose'}"></span>`);
+        const empty = Array(Math.max(0, FORM_SLOTS - results.length)).fill('<span class="form-dot empty"></span>');
+        return `<span class="form-dots" role="img" aria-label="최근 ${results.length}경기: ${label}">${filled.join('')}${empty.join('')}</span>`;
     }
 
     async function loadIndividualLeaderboard() {
