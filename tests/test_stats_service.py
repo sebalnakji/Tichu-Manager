@@ -1,13 +1,18 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from core import season as season_rules
 from core.database import get_db
 from models.models import Match, MatchStats, Player
 from routers.stats import router as stats_router
 from services.stats_service import StatsService
+
+# 테스트 기준 시즌: 현재 시즌과 그 기간
+SEASON = season_rules.current_season()
+START, END = season_rules.season_bounds(SEASON)
 
 
 @pytest.fixture
@@ -23,10 +28,9 @@ def client(db):
         yield test_client
 
 
-def test_year_filter_excludes_other_seasons(db, player_ids):
-    current_year = date.today().year
+def test_season_filter_excludes_other_seasons(db, player_ids):
     current_match = Match(
-        play_date=date(current_year, 1, 1),
+        play_date=START,
         team_a_ids=player_ids[:2],
         team_b_ids=player_ids[2:],
         status="FINISHED",
@@ -34,7 +38,7 @@ def test_year_filter_excludes_other_seasons(db, player_ids):
         rounds=[],
     )
     old_match = Match(
-        play_date=date(current_year - 1, 12, 31),
+        play_date=START - timedelta(days=1),
         team_a_ids=player_ids[:2],
         team_b_ids=player_ids[2:],
         status="FINISHED",
@@ -42,7 +46,7 @@ def test_year_filter_excludes_other_seasons(db, player_ids):
         rounds=[],
     )
     ongoing_match = Match(
-        play_date=date(current_year, 1, 2),
+        play_date=START + timedelta(days=1),
         team_a_ids=player_ids[:2],
         team_b_ids=player_ids[2:],
         status="PLAYING",
@@ -63,7 +67,7 @@ def test_year_filter_excludes_other_seasons(db, player_ids):
 
     stats = {
         item.player_id: item
-        for item in StatsService.get_all_player_stats(db, current_year)
+        for item in StatsService.get_all_player_stats(db, SEASON)
     }
 
     assert stats[player_ids[0]].total_games == 1
@@ -90,10 +94,9 @@ def test_leaderboard_prioritizes_qualified_players_then_win_rate(db, player_ids)
     db.add_all(extras)
     db.commit()
 
-    current_year = date.today().year
     matches = [
         Match(
-            play_date=date(current_year, 1, 1),
+            play_date=START,
             team_a_ids=player_ids[:2],
             team_b_ids=player_ids[2:],
             status="FINISHED",
@@ -104,7 +107,7 @@ def test_leaderboard_prioritizes_qualified_players_then_win_rate(db, player_ids)
     ]
     matches.extend(
         Match(
-            play_date=date(current_year, 1, 2),
+            play_date=START + timedelta(days=1),
             team_a_ids=[extras[0].id, extras[1].id],
             team_b_ids=[extras[2].id, extras[3].id],
             status="FINISHED",
@@ -116,7 +119,7 @@ def test_leaderboard_prioritizes_qualified_players_then_win_rate(db, player_ids)
     db.add_all(matches)
     db.commit()
 
-    leaderboard = StatsService.get_leaderboard(db, current_year)
+    leaderboard = StatsService.get_leaderboard(db, SEASON)
 
     qualified = [stats for stats in leaderboard if stats.total_games >= 10]
     provisional = [stats for stats in leaderboard if stats.total_games < 10]
@@ -142,10 +145,9 @@ def test_team_leaderboard_prioritizes_qualified_teams_then_win_rate(
     db.add_all(extras)
     db.commit()
 
-    current_year = date.today().year
     matches = [
         Match(
-            play_date=date(current_year, 1, 1),
+            play_date=START,
             team_a_ids=player_ids[:2],
             team_b_ids=player_ids[2:],
             status="FINISHED",
@@ -156,7 +158,7 @@ def test_team_leaderboard_prioritizes_qualified_teams_then_win_rate(
     ]
     matches.extend(
         Match(
-            play_date=date(current_year, 1, 2),
+            play_date=START + timedelta(days=1),
             team_a_ids=[extras[0].id, extras[1].id],
             team_b_ids=[extras[2].id, extras[3].id],
             status="FINISHED",
@@ -168,7 +170,7 @@ def test_team_leaderboard_prioritizes_qualified_teams_then_win_rate(
     db.add_all(matches)
     db.commit()
 
-    leaderboard = StatsService.get_team_leaderboard(db, current_year)
+    leaderboard = StatsService.get_team_leaderboard(db, SEASON)
 
     assert [stats.total_games for stats in leaderboard] == [10, 10, 2, 2]
     assert [stats.win_rate for stats in leaderboard] == [100.0, 0.0, 100.0, 0.0]
@@ -186,60 +188,57 @@ def _finished(play_date, team_a, team_b, winner):
 
 
 def test_recent_form_streak_and_last_five(db, player_ids):
-    year = date.today().year
     a, b = player_ids[:2], player_ids[2:]
     # 날짜 순: 패 승 패 승 승 승 (같은 날은 id 순) → 3연승, 최근 5경기 승 패 승 승 승
     winners = ["B", "A", "B", "A", "A", "A"]
     db.add_all([
-        _finished(date(year, 1, 1 + i // 2), a, b, winner)
+        _finished(START + timedelta(days=i // 2), a, b, winner)
         for i, winner in enumerate(winners)
     ])
-    # 다른 시즌 경기는 흐름 계산에서 빠진다
-    db.add(_finished(date(year + 1, 1, 1), a, b, "B"))
+    # 다음 시즌 경기는 흐름 계산에서 빠진다
+    db.add(_finished(END, a, b, "B"))
     db.commit()
 
-    stats = {s.player_id: s for s in StatsService.get_all_player_stats(db, year)}
+    stats = {s.player_id: s for s in StatsService.get_all_player_stats(db, SEASON)}
     assert stats[a[0]].streak == 3
     assert stats[a[0]].recent_results == ["W", "L", "W", "W", "W"]
     assert stats[b[0]].streak == -3
     assert stats[b[0]].recent_results == ["L", "W", "L", "L", "L"]
 
-    team = StatsService.get_team_stats(a[0], a[1], db, year)
+    team = StatsService.get_team_stats(a[0], a[1], db, SEASON)
     assert team.recent_results == ["W", "L", "W", "W", "W"]
 
 
 def test_recent_form_with_few_or_no_games(db, player_ids):
-    year = date.today().year
     a, b = player_ids[:2], player_ids[2:]
     db.add_all([
-        _finished(date(year, 3, 1), a, b, "A"),
-        _finished(date(year, 3, 2), a, b, "B"),
+        _finished(START + timedelta(days=1), a, b, "A"),
+        _finished(START + timedelta(days=2), a, b, "B"),
     ])
     db.commit()
 
-    stats = {s.player_id: s for s in StatsService.get_all_player_stats(db, year)}
+    stats = {s.player_id: s for s in StatsService.get_all_player_stats(db, SEASON)}
     assert stats[a[0]].streak == -1
     assert stats[a[0]].recent_results == ["W", "L"]
 
-    empty = {s.player_id: s for s in StatsService.get_all_player_stats(db, year - 1)}
+    empty = {s.player_id: s for s in StatsService.get_all_player_stats(db, SEASON + 1)}
     assert empty[a[0]].streak == 0
     assert empty[a[0]].recent_results == []
 
 
 def test_leaderboard_api_includes_recent_form(client, db, player_ids):
-    year = date.today().year
     a, b = player_ids[:2], player_ids[2:]
     db.add_all([
-        _finished(date(year, 4, 1), a, b, "A"),
-        _finished(date(year, 4, 2), a, b, "A"),
+        _finished(START + timedelta(days=3), a, b, "A"),
+        _finished(START + timedelta(days=4), a, b, "A"),
     ])
     db.commit()
 
-    players = client.get(f"/api/stats/leaderboard?year={year}").json()
+    players = client.get(f"/api/stats/leaderboard?season={SEASON}").json()
     top = next(p["stats"] for p in players if p["stats"]["player_id"] == a[0])
     assert top["streak"] == 2
     assert top["recent_results"] == ["W", "W"]
 
-    teams = client.get(f"/api/stats/leaderboard/teams?year={year}").json()
+    teams = client.get(f"/api/stats/leaderboard/teams?season={SEASON}").json()
     team = next(t["stats"] for t in teams if t["stats"]["player1_id"] == min(a))
     assert team["recent_results"] == ["W", "W"]

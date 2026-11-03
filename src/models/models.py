@@ -15,6 +15,7 @@ from sqlalchemy import (
 )
 from datetime import datetime, date
 
+from core import season as season_rules
 from core.database import Base
 
 
@@ -47,7 +48,7 @@ class Match(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    play_date = Column(Date, default=date.today, nullable=False, comment="게임 날짜")
+    play_date = Column(Date, default=lambda: season_rules.today_kst(), nullable=False, comment="게임 날짜 (한국 날짜)")
 
     # 팀 구성 (JSON 배열로 플레이어 ID 저장)
     team_a_ids = Column(JSON, nullable=False, comment="팀 A 플레이어 ID 리스트 [id1, id2]")

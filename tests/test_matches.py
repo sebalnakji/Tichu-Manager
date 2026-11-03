@@ -1,10 +1,11 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import event
 
+from core import season as season_rules
 from core.database import get_db
 from dto.match import RoundEvent, RoundScoreRequest
 from models.models import Match, MatchStats
@@ -613,12 +614,12 @@ def test_finished_match_still_allows_editing_existing_round(db, player_ids):
 
 
 def test_match_detail_team_record_counts_this_season_only(db, player_ids):
-    year = date.today().year
-    # 올해: A팀(앞 두 명) 2승 1패, 작년: A팀 1승 (빠져야 함), 진행 중 경기도 제외
+    start, _ = season_rules.season_bounds(season_rules.current_season())
+    # 현재 시즌: A팀(앞 두 명) 2승 1패, 시즌 직전 날: A팀 1승 (빠져야 함), 진행 중 경기도 제외
     for winner in ("A", "A", "B"):
-        match_id = create_match(db, player_ids, status="FINISHED", play_date=date(year, 1, 1))
+        match_id = create_match(db, player_ids, status="FINISHED", play_date=start)
         db.get(Match, match_id).winner_team = winner
-    create_match(db, player_ids, status="FINISHED", play_date=date(year - 1, 12, 31))
+    create_match(db, player_ids, status="FINISHED", play_date=start - timedelta(days=1))
     db.commit()
     match_id = create_match(db, player_ids)
 

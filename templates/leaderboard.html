@@ -217,35 +217,34 @@
 {% block extra_scripts %}
 <script>
     let currentTab = 'individual';
-    let currentYear = new Date().getFullYear().toString();
+    // 선택한 시즌 번호 ('' = 전체 기간), 기본은 현재 시즌
+    let currentSeason = String(window.TICHU_SEASONS.current);
 
     document.addEventListener('DOMContentLoaded', () => {
-        initYearFilter();
+        initSeasonFilter();
         loadLeaderboard();
         document.getElementById('year-filter').addEventListener('change', (e) => {
-            currentYear = e.target.value;
+            currentSeason = e.target.value;
             loadLeaderboard();
         });
     });
 
-    function initYearFilter() {
-        const yearFilter = document.getElementById('year-filter');
-        const currentYearNum = new Date().getFullYear();
+    function initSeasonFilter() {
+        const seasonFilter = document.getElementById('year-filter');
 
         const allOption = document.createElement('option');
         allOption.value = '';
         allOption.textContent = '전체 기간';
-        yearFilter.appendChild(allOption);
+        seasonFilter.appendChild(allOption);
 
-        const startYear = 2026;
-        for (let year = currentYearNum; year >= startYear; year--) {
+        // 최신 시즌이 위 (예: 시즌3 / 시즌2 / 시즌1)
+        window.TICHU_SEASONS.list.forEach(season => {
             const option = document.createElement('option');
-            option.value = year;
-            option.textContent = `${year} 시즌`;
-            if (year === currentYearNum) option.selected = true;
-            yearFilter.appendChild(option);
-        }
-        currentYear = currentYearNum.toString();
+            option.value = season.number;
+            option.textContent = season.name;
+            seasonFilter.appendChild(option);
+        });
+        seasonFilter.value = currentSeason;
     }
 
     function switchTab(tab) {
@@ -295,7 +294,7 @@
 
     async function loadIndividualLeaderboard() {
         try {
-            const url = currentYear ? `/api/stats/leaderboard?year=${currentYear}` : '/api/stats/leaderboard';
+            const url = currentSeason ? `/api/stats/leaderboard?season=${currentSeason}` : '/api/stats/leaderboard';
             const response = await fetch(url);
             const leaderboard = await response.json();
             const container = document.getElementById('individual-list');
@@ -346,7 +345,7 @@
 
     async function loadTeamLeaderboard() {
         try {
-            const url = currentYear ? `/api/stats/leaderboard/teams?year=${currentYear}` : '/api/stats/leaderboard/teams';
+            const url = currentSeason ? `/api/stats/leaderboard/teams?season=${currentSeason}` : '/api/stats/leaderboard/teams';
             const response = await fetch(url);
             const leaderboard = await response.json();
             const container = document.getElementById('team-list');

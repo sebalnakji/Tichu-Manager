@@ -367,7 +367,7 @@
 
     async function loadPlayers() {
         try {
-            const [playersResponse, statsResponse] = await Promise.all([fetch('/api/players'), fetch('/api/stats/players/current-year')]);
+            const [playersResponse, statsResponse] = await Promise.all([fetch('/api/players'), fetch('/api/stats/players/current-season')]);
             allPlayersData = await playersResponse.json();
             const statsData = await statsResponse.json();
             allPlayersData = allPlayersData.map(player => {

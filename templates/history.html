@@ -259,12 +259,12 @@
     const listEl = document.getElementById('history-list');
     const footerEl = document.getElementById('history-footer');
 
-    // ── 화면 상태 (주소에 기억: ?tab=player&p=3&year=2026) ──
-    const currentYearNum = new Date().getFullYear();
+    // ── 화면 상태 (주소에 기억: ?tab=player&p=3&season=1, 전체 기간은 season=all) ──
+    const CURRENT_SEASON = String(window.TICHU_SEASONS.current);
     const query = new URLSearchParams(location.search);
     const state = {
         tab: ['day', 'player', 'team'].includes(query.get('tab')) ? query.get('tab') : 'day',
-        year: query.has('year') ? (query.get('year') === 'all' ? '' : query.get('year')) : String(currentYearNum),
+        season: query.has('season') ? (query.get('season') === 'all' ? '' : query.get('season')) : CURRENT_SEASON,
         selected: (query.get('p') || '').split(',').map(Number).filter(Boolean),
     };
     let playerOptions = [];   // 시즌에 경기한 사람 (경기 수 순)
@@ -286,14 +286,14 @@
         const params = new URLSearchParams();
         if (state.tab !== 'day') params.set('tab', state.tab);
         if (state.tab !== 'day' && state.selected.length) params.set('p', state.selected.join(','));
-        if (state.year !== String(currentYearNum)) params.set('year', state.year || 'all');
+        if (state.season !== CURRENT_SEASON) params.set('season', state.season || 'all');
         const search = params.toString() ? `?${params}` : '';
         if (search !== location.search) history.replaceState(null, '', `/history${search}`);
     }
 
     document.addEventListener('DOMContentLoaded', async () => {
         sessionStorage.removeItem(FROM_LIST_KEY);
-        initYearFilter();
+        initSeasonFilter();
         renderTabs();
         await loadPlayerOptions();
         const ticket = takeReturnTicket();
@@ -308,25 +308,26 @@
         }
     });
 
-    function initYearFilter() {
-        const yearFilter = document.getElementById('year-filter');
+    function initSeasonFilter() {
+        const seasonFilter = document.getElementById('year-filter');
         const allOption = document.createElement('option');
         allOption.value = '';
         allOption.textContent = '전체 기간';
-        yearFilter.appendChild(allOption);
+        seasonFilter.appendChild(allOption);
 
-        const startYear = 2026;
-        for (let year = currentYearNum; year >= startYear; year--) {
+        // 최신 시즌이 위 (랭킹과 같은 목록)
+        window.TICHU_SEASONS.list.forEach(season => {
             const option = document.createElement('option');
-            option.value = year;
-            option.textContent = `${year} 시즌`;
-            yearFilter.appendChild(option);
-        }
-        if (![...yearFilter.options].some(o => o.value === state.year)) state.year = String(currentYearNum);
-        yearFilter.value = state.year;
+            option.value = season.number;
+            option.textContent = season.name;
+            seasonFilter.appendChild(option);
+        });
+        // 없는 시즌 번호가 주소에 있으면 현재 시즌으로
+        if (![...seasonFilter.options].some(o => o.value === state.season)) state.season = CURRENT_SEASON;
+        seasonFilter.value = state.season;
 
-        yearFilter.addEventListener('change', async (e) => {
-            state.year = e.target.value;
+        seasonFilter.addEventListener('change', async (e) => {
+            state.season = e.target.value;
             await loadPlayerOptions();
             resetList();
         });
@@ -353,7 +354,7 @@
     async function loadPlayerOptions() {
         try {
             const params = new URLSearchParams();
-            if (state.year) params.set('year', state.year);
+            if (state.season) params.set('season', state.season);
             const response = await fetch(`/api/matches/history/players?${params}`);
             if (!response.ok) throw new Error();
             playerOptions = await response.json();
@@ -452,7 +453,7 @@
         let succeeded = false;
         try {
             const params = new URLSearchParams();
-            if (state.year) params.set('year', state.year);
+            if (state.season) params.set('season', state.season);
             if (state.tab !== 'day') params.set('player_ids', state.selected.join(','));
             if (page.cursor) params.set('before_date', page.cursor);
             const response = await fetch(`/api/matches/history?${params}`);
@@ -534,7 +535,7 @@
     function formatDay(isoDate) {
         const [y, m, d] = isoDate.split('-').map(Number);
         const weekday = WEEKDAYS[new Date(y, m - 1, d).getDay()];
-        const prefix = y === currentYearNum ? '' : `${y}년 `;
+        const prefix = y === new Date().getFullYear() ? '' : `${y}년 `;  // 올해가 아니면 연도 표시
         return `${prefix}${m}월 ${d}일 (${weekday})`;
     }
 

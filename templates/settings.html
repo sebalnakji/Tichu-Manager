@@ -592,7 +592,6 @@
     // ── 데이터 초기화 ────────────────────────────────
     let resetTarget = null;
     const RESET_LABELS = { players: '플레이어', matches: '매치', stats: '통계', all: '전체' };
-    const START_YEAR = 2026;
 
     function openResetModal(target) {
         if (target === 'players') {
@@ -603,15 +602,15 @@
         document.getElementById('reset-modal-title').textContent = `${RESET_LABELS[target]} 초기화`;
         const container = document.getElementById('reset-year-buttons');
         container.innerHTML = '';
-        const currentYear = new Date().getFullYear();
-        for (let y = currentYear; y >= START_YEAR; y--) {
+        // 최신 시즌이 위 (예: 시즌3 / 시즌2 / 시즌1)
+        window.TICHU_SEASONS.list.forEach(season => {
             const btn = document.createElement('button');
             btn.className = 'w-full p-4 rounded-2xl font-bold text-sm transition active:scale-95 s-card';
             btn.style.color = 'var(--text-primary)';
-            btn.textContent = `${y}년 시즌`;
-            btn.onclick = () => confirmReset(target, y);
+            btn.textContent = season.name;
+            btn.onclick = () => confirmReset(target, season);
             container.appendChild(btn);
-        }
+        });
         const allBtn = document.createElement('button');
         allBtn.className = 'w-full p-4 rounded-2xl font-bold text-sm transition active:scale-95 border border-red-200 hover:bg-red-50';
         allBtn.style.color = '#EF4444';
@@ -623,14 +622,15 @@
 
     function closeResetModal() { document.getElementById('reset-modal').classList.add('hidden'); }
 
-    async function confirmReset(table, year) {
+    // season: { number, name } 또는 null(전체)
+    async function confirmReset(table, season) {
         const label = RESET_LABELS[table];
-        const yearLabel = year ? `${year}년` : '전체';
-        if (!confirm(`⚠️ ${label} ${yearLabel} 데이터가 영구 삭제됩니다.\n정말 진행하시겠습니까?`)) return;
+        const seasonLabel = season ? season.name : '전체';
+        if (!confirm(`⚠️ ${label} ${seasonLabel} 데이터가 영구 삭제됩니다.\n정말 진행하시겠습니까?`)) return;
         if (!confirm(`정말로 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다!`)) return;
         try {
             const adminCode = AuthManager.getAdminCode();
-            const body = { table, year };
+            const body = { table, season: season ? season.number : null };
             const response = await fetch('/api/admin/reset', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json', 'Authorization': adminCode },
@@ -640,7 +640,7 @@
             const result = await response.json();
             alert(result.message);
             closeResetModal();
-            if (table === 'all' && !year) { AuthManager.logout(); window.location.href = '/'; }
+            if (table === 'all' && !season) { AuthManager.logout(); window.location.href = '/'; }
         } catch (error) {
             alert('초기화 중 오류가 발생했습니다.');
         }

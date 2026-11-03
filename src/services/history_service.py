@@ -26,10 +26,10 @@ class HistoryService:
     """게임 기록 조회 서비스"""
 
     @staticmethod
-    def _season_matches(db: Session, year: Optional[int]) -> List[Match]:
+    def _season_matches(db: Session, season: Optional[int]) -> List[Match]:
         """시즌의 완료 경기를 최신 날짜순으로 조회한다."""
         query = db.query(Match).filter(Match.status == "FINISHED")
-        query = StatsService._filter_query_by_year(query, Match.play_date, year)
+        query = StatsService._filter_query_by_season(query, Match.play_date, season)
         return query.order_by(Match.play_date.desc(), Match.id.desc()).all()
 
     @staticmethod
@@ -137,17 +137,17 @@ class HistoryService:
     @staticmethod
     def get_history_page(
         db: Session,
-        year: Optional[int] = None,
+        season: Optional[int] = None,
         player_ids: Optional[List[int]] = None,
         before_date: Optional[date] = None,
         days: int = DEFAULT_PAGE_DAYS,
     ) -> HistoryPageResponse:
         """경기가 있었던 날짜 `days`일치를 하루 단위로 통째로 돌려준다."""
         player_ids = player_ids or []
-        season = HistoryService._filter_matches(
-            HistoryService._season_matches(db, year), player_ids
+        season_matches = HistoryService._filter_matches(
+            HistoryService._season_matches(db, season), player_ids
         )
-        remaining = [m for m in season if before_date is None or m.play_date < before_date]
+        remaining = [m for m in season_matches if before_date is None or m.play_date < before_date]
 
         page_dates: List[date] = []
         for match in remaining:
@@ -160,7 +160,7 @@ class HistoryService:
 
         # 시즌 요약은 첫 페이지에서만 계산 (시즌 전체 티츄 기록 필요)
         include_summary = bool(player_ids) and before_date is None
-        stat_match_ids = [m.id for m in (season if include_summary else page_matches)]
+        stat_match_ids = [m.id for m in (season_matches if include_summary else page_matches)]
         stats_by_match = HistoryService._stats_by_match(db, stat_match_ids)
 
         involved_ids = {pid for m in page_matches for pid in m.team_a_ids + m.team_b_ids}
@@ -194,17 +194,17 @@ class HistoryService:
             days=day_list,
             next_before_date=page_dates[-1] if has_more else None,
             summary=(
-                HistoryService._summary(season, player_ids, stats_by_match)
+                HistoryService._summary(season_matches, player_ids, stats_by_match)
                 if include_summary else None
             ),
         )
 
     @staticmethod
-    def get_player_options(db: Session, year: Optional[int] = None) -> List[HistoryPlayerOption]:
+    def get_player_options(db: Session, season: Optional[int] = None) -> List[HistoryPlayerOption]:
         """시즌에 경기한 사람을 경기 수 많은 순으로, 같은 팀을 했던 사람과 함께."""
         games: Dict[int, int] = {}
         partners: Dict[int, set] = {}
-        for match in HistoryService._season_matches(db, year):
+        for match in HistoryService._season_matches(db, season):
             for ids in (match.team_a_ids, match.team_b_ids):
                 for player_id in ids:
                     games[player_id] = games.get(player_id, 0) + 1

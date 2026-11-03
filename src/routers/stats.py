@@ -3,13 +3,14 @@ Stats Router
 통계 및 랭킹 관련 API 엔드포인트
 """
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import datetime
 
+from core import season as season_rules
 from core.database import get_db
 from dto.stats import PlayerStats, LeaderboardResponse, TeamLeaderboardResponse
 from services.stats_service import StatsService
+from routers.season_param import season_query
 
 router = APIRouter(prefix="/api/stats", tags=["Stats"])
 
@@ -17,13 +18,13 @@ router = APIRouter(prefix="/api/stats", tags=["Stats"])
 @router.get("/player/{player_id}", response_model=PlayerStats)
 def get_player_stats(
     player_id: int,
-    year: Optional[int] = Query(None, description="연도 필터 (전체: None)"),
+    season: Optional[int] = Depends(season_query),
     db: Session = Depends(get_db)
 ):
     """
     개인 전적 통계 조회
     """
-    stats = StatsService.get_player_stats(player_id, db, year)
+    stats = StatsService.get_player_stats(player_id, db, season)
     if not stats:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -32,19 +33,18 @@ def get_player_stats(
     return stats
 
 
-@router.get("/players/current-year", response_model=List[PlayerStats])
-def get_all_players_stats_current_year(db: Session = Depends(get_db)):
+@router.get("/players/current-season", response_model=List[PlayerStats])
+def get_all_players_stats_current_season(db: Session = Depends(get_db)):
     """
-    전체 플레이어 통계 조회 (현재 연도)
+    전체 플레이어 통계 조회 (현재 시즌, 한국 날짜 기준)
     팀 선택 화면에서 승률 표시용
     """
-    current_year = datetime.now().year
-    return StatsService.get_all_player_stats(db, current_year)
+    return StatsService.get_all_player_stats(db, season_rules.current_season())
 
 
 @router.get("/leaderboard", response_model=List[LeaderboardResponse])
 def get_leaderboard(
-    year: Optional[int] = Query(None, description="연도 필터 (전체: None)"),
+    season: Optional[int] = Depends(season_query),
     db: Session = Depends(get_db)
 ):
     """
@@ -52,7 +52,7 @@ def get_leaderboard(
     정렬 우선순위: 10경기 이상 > 승률 > 경기 수 > 승수 >
     티츄 성공률 > 라지티츄 성공률
     """
-    stats_list = StatsService.get_leaderboard(db, year)
+    stats_list = StatsService.get_leaderboard(db, season)
 
     # 순위 부여
     leaderboard = [
@@ -65,7 +65,7 @@ def get_leaderboard(
 
 @router.get("/leaderboard/teams", response_model=List[TeamLeaderboardResponse])
 def get_team_leaderboard(
-    year: Optional[int] = Query(None, description="연도 필터 (전체: None)"),
+    season: Optional[int] = Depends(season_query),
     db: Session = Depends(get_db)
 ):
     """
@@ -73,7 +73,7 @@ def get_team_leaderboard(
     정렬 우선순위: 10경기 이상 > 승률 > 경기 수 > 승수 >
     티츄 성공률 > 라지티츄 성공률
     """
-    stats_list = StatsService.get_team_leaderboard(db, year)
+    stats_list = StatsService.get_team_leaderboard(db, season)
 
     # 순위 부여
     leaderboard = [

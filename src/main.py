@@ -12,6 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from core.properties import settings, validate_required_settings
 validate_required_settings()
+from core import season as season_rules
 from core.database import init_db
 from core.logging_config import setup_logging, get_logger
 from routers import players_router, matches_router, stats_router, auth_router, admin_router
@@ -81,6 +82,8 @@ app = FastAPI(
 # 정적 파일 및 템플릿 설정
 app.mount("/static", StaticFiles(directory="../static"), name="static")
 templates = Jinja2Templates(directory="../templates")
+# 모든 페이지에서 시즌 목록·현재 시즌 사용 (base.html → window.TICHU_SEASONS, 렌더할 때마다 한국 날짜로 계산)
+templates.env.globals["season_context"] = season_rules.season_context
 
 
 # API 라우터 등록

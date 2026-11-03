@@ -2,12 +2,12 @@
 Stats Service
 통계 계산 및 랭킹 로직
 """
-from datetime import date
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
 from itertools import combinations
 
+from core import season as season_rules
 from models.models import Player, Match, MatchStats
 from dto.stats import PlayerStats, TeamStats
 
@@ -16,15 +16,12 @@ class StatsService:
     """통계 계산 서비스"""
 
     @staticmethod
-    def _year_bounds(year: int) -> tuple[date, date]:
-        return date(year, 1, 1), date(year + 1, 1, 1)
-
-    @staticmethod
-    def _filter_query_by_year(query, column, year: Optional[int]):
-        if not year:
+    def _filter_query_by_season(query, column, season: Optional[int]):
+        """시즌 기간으로 거르기 (None이면 전체 기간)"""
+        if not season:
             return query
 
-        start_date, end_date = StatsService._year_bounds(year)
+        start_date, end_date = season_rules.season_bounds(season)
         return query.filter(column >= start_date, column < end_date)
 
     RECENT_FORM_GAMES = 5
@@ -141,27 +138,27 @@ class StatsService:
         )
 
     @staticmethod
-    def _get_finished_matches(db: Session, year: Optional[int]) -> List[Match]:
+    def _get_finished_matches(db: Session, season: Optional[int]) -> List[Match]:
         query = db.query(Match).filter(Match.status == "FINISHED")
-        query = StatsService._filter_query_by_year(query, Match.play_date, year)
+        query = StatsService._filter_query_by_season(query, Match.play_date, season)
         return query.all()
 
     @staticmethod
-    def _get_recent_matches(db: Session, year: Optional[int]) -> List[Match]:
+    def _get_recent_matches(db: Session, season: Optional[int]) -> List[Match]:
         query = db.query(Match).filter(Match.status == "FINISHED")
-        query = StatsService._filter_query_by_year(query, Match.play_date, year)
+        query = StatsService._filter_query_by_season(query, Match.play_date, season)
         return query.order_by(Match.play_date.desc(), Match.id.desc()).limit(20).all()
 
     @staticmethod
-    def _get_match_stats(db: Session, year: Optional[int]) -> List[MatchStats]:
+    def _get_match_stats(db: Session, season: Optional[int]) -> List[MatchStats]:
         query = db.query(MatchStats).join(Match).filter(
             Match.status == "FINISHED"
         )
-        if year:
-            query = StatsService._filter_query_by_year(
+        if season:
+            query = StatsService._filter_query_by_season(
                 query,
                 Match.play_date,
-                year,
+                season,
             )
         return query.all()
 
@@ -170,9 +167,9 @@ class StatsService:
         team_a_ids: List[int],
         team_b_ids: List[int],
         db: Session,
-        year: int,
+        season: int,
     ):
-        """점수판에 필요한 선수·개인·팀 통계를 세 번의 조회로 계산한다."""
+        """점수판에 필요한 선수·개인·팀 통계를 세 번의 조회로 계산한다 (해당 시즌 기준)."""
         player_ids = list(dict.fromkeys(team_a_ids + team_b_ids))
         players = db.query(Player).filter(Player.id.in_(player_ids)).all()
         players_by_id = {player.id: player for player in players}
@@ -189,11 +186,14 @@ class StatsService:
             .all()
         )
 
-        year_matches = [
-            match for match in finished_matches if match.play_date.year == year
+        start_date, end_date = season_rules.season_bounds(season)
+        season_matches = [
+            match
+            for match in finished_matches
+            if start_date <= match.play_date < end_date
         ]
-        year_match_ids = {match.id for match in year_matches}
-        recent_matches = year_matches[:20]
+        season_match_ids = {match.id for match in season_matches}
+        recent_matches = season_matches[:20]
 
         player_stats = {}
         for player_id, player in players_by_id.items():
@@ -201,11 +201,11 @@ class StatsService:
                 stat
                 for stat in all_stats
                 if stat.player_id == player_id
-                and stat.match_id in year_match_ids
+                and stat.match_id in season_match_ids
             ]
             player_stats[player_id] = StatsService._build_player_stats(
                 player,
-                year_matches,
+                season_matches,
                 recent_matches,
                 player_tichu_stats,
             )
@@ -219,10 +219,10 @@ class StatsService:
             if not player1 or not player2:
                 return None
 
-            # 점수판의 "시즌" 팀 승패·승률: 개인 통계와 같이 해당 연도 경기만
+            # 점수판의 "시즌" 팀 승패·승률: 개인 통계와 같이 해당 시즌 경기만
             team_matches = [
                 match
-                for match in year_matches
+                for match in season_matches
                 if (
                     player1.id in match.team_a_ids
                     and player2.id in match.team_a_ids
@@ -256,13 +256,13 @@ class StatsService:
     @staticmethod
     def get_all_player_stats(
         db: Session,
-        year: Optional[int] = None,
+        season: Optional[int] = None,
     ) -> List[PlayerStats]:
         """모든 개인 통계를 고정된 네 번의 DB 조회로 계산한다."""
         players = db.query(Player).all()
-        matches = StatsService._get_finished_matches(db, year)
-        recent_matches = StatsService._get_recent_matches(db, year)
-        all_tichu_stats = StatsService._get_match_stats(db, year)
+        matches = StatsService._get_finished_matches(db, season)
+        recent_matches = StatsService._get_recent_matches(db, season)
+        all_tichu_stats = StatsService._get_match_stats(db, season)
 
         stats_by_player: dict[int, List[MatchStats]] = {}
         for stat in all_tichu_stats:
@@ -282,7 +282,7 @@ class StatsService:
     def get_player_stats(
         player_id: int,
         db: Session,
-        year: Optional[int] = None
+        season: Optional[int] = None
     ) -> Optional[PlayerStats]:
         """
         개인 전적 통계 조회
@@ -290,7 +290,7 @@ class StatsService:
         Args:
             player_id: 플레이어 ID
             db: 데이터베이스 세션
-            year: 연도 필터 (None이면 전체)
+            season: 시즌 필터 (None이면 전체 기간)
 
         Returns:
             PlayerStats: 플레이어 통계 또는 None
@@ -299,8 +299,8 @@ class StatsService:
         if not player:
             return None
 
-        matches = StatsService._get_finished_matches(db, year)
-        recent_matches = StatsService._get_recent_matches(db, year)
+        matches = StatsService._get_finished_matches(db, season)
+        recent_matches = StatsService._get_recent_matches(db, season)
         stats_query = (
             db.query(MatchStats)
             .join(Match)
@@ -309,11 +309,11 @@ class StatsService:
                 Match.status == "FINISHED",
             )
         )
-        if year:
-            stats_query = StatsService._filter_query_by_year(
+        if season:
+            stats_query = StatsService._filter_query_by_season(
                 stats_query,
                 Match.play_date,
-                year,
+                season,
             )
         tichu_stats = stats_query.all()
 
@@ -399,7 +399,7 @@ class StatsService:
         player1_id: int,
         player2_id: int,
         db: Session,
-        year: Optional[int] = None
+        season: Optional[int] = None
     ) -> Optional[TeamStats]:
         """
         팀 전적 통계 조회 (순서 무관)
@@ -408,7 +408,7 @@ class StatsService:
             player1_id: 플레이어 1 ID
             player2_id: 플레이어 2 ID
             db: 데이터베이스 세션
-            year: 연도 필터
+            season: 시즌 필터
 
         Returns:
             TeamStats: 팀 통계 또는 None
@@ -422,7 +422,7 @@ class StatsService:
         if not player1 or not player2:
             return None
 
-        matches = StatsService._get_finished_matches(db, year)
+        matches = StatsService._get_finished_matches(db, season)
         team_matches = [
             match
             for match in matches
@@ -493,7 +493,7 @@ class StatsService:
     @staticmethod
     def get_team_leaderboard(
         db: Session,
-        year: Optional[int] = None
+        season: Optional[int] = None
     ) -> List[TeamStats]:
         """
         팀 랭킹 조회
@@ -502,14 +502,14 @@ class StatsService:
 
         Args:
             db: 데이터베이스 세션
-            year: 연도 필터
+            season: 시즌 필터
 
         Returns:
             List[TeamStats]: 정렬된 팀 통계 리스트
         """
         players = db.query(Player).all()
-        matches = StatsService._get_finished_matches(db, year)
-        all_tichu_stats = StatsService._get_match_stats(db, year)
+        matches = StatsService._get_finished_matches(db, season)
+        all_tichu_stats = StatsService._get_match_stats(db, season)
         team_combinations = list(combinations(players, 2))
 
         stats_list = []
@@ -560,7 +560,7 @@ class StatsService:
     @staticmethod
     def get_leaderboard(
         db: Session,
-        year: Optional[int] = None
+        season: Optional[int] = None
     ) -> List[PlayerStats]:
         """
         전체 플레이어 랭킹 조회
@@ -569,14 +569,14 @@ class StatsService:
 
         Args:
             db: 데이터베이스 세션
-            year: 연도 필터
+            season: 시즌 필터
 
         Returns:
             List[PlayerStats]: 정렬된 플레이어 통계 리스트
         """
         stats_list = [
             stats
-            for stats in StatsService.get_all_player_stats(db, year)
+            for stats in StatsService.get_all_player_stats(db, season)
             if stats.total_games > 0
         ]
 

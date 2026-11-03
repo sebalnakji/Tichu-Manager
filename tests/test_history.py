@@ -67,7 +67,7 @@ def test_history_pages_by_whole_days(db, client, player_ids):
     add_match(db, date(2026, 3, 9), a, b, status="PLAYING")  # 진행 중 제외
     add_match(db, date(2025, 12, 31), a, b)  # 다른 시즌 제외
 
-    first = client.get("/api/matches/history", params={"year": 2026}).json()
+    first = client.get("/api/matches/history", params={"season": 1}).json()
     assert [d["date"] for d in first["days"]] == ["2026-03-09", "2026-03-07", "2026-03-04"]
     assert [d["game_count"] for d in first["days"]] == [5, 4, 3]
     assert [len(d["matches"]) for d in first["days"]] == [5, 4, 3]
@@ -76,7 +76,7 @@ def test_history_pages_by_whole_days(db, client, player_ids):
 
     second = client.get(
         "/api/matches/history",
-        params={"year": 2026, "before_date": first["next_before_date"]},
+        params={"season": 1, "before_date": first["next_before_date"]},
     ).json()
     assert [d["date"] for d in second["days"]] == ["2026-03-02", "2026-03-01"]
     assert second["next_before_date"] is None
@@ -159,7 +159,7 @@ def test_player_options_sorted_by_games_with_partners(db, client, five_ids):
     add_match(db, date(2026, 6, 2), [p1, p3], [p2, p5])
     add_match(db, date(2025, 6, 2), [p4, p5], [p2, p3])  # 다른 시즌
 
-    options = client.get("/api/matches/history/players", params={"year": 2026}).json()
+    options = client.get("/api/matches/history/players", params={"season": 1}).json()
     assert [o["id"] for o in options][:3] == [p1, p2, p3]  # 2경기씩, 이름순
     by_id = {o["id"]: o for o in options}
     assert by_id[p1]["games"] == 2

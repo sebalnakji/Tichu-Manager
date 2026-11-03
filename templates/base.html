@@ -20,6 +20,9 @@
         })();
     </script>
 
+    <!-- 시즌 목록(최신 시즌이 앞) + 현재 시즌: 서버가 한국 날짜로 계산 -->
+    <script>window.TICHU_SEASONS = {{ season_context() | tojson }};</script>
+
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
 

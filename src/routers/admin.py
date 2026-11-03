@@ -2,13 +2,13 @@
 Admin Router
 관리자 전용 API 엔드포인트
 """
-from datetime import date, datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
+from core import season as season_rules
 from core.database import get_db
 from core.properties import settings
 from core.logging_config import get_logger
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 class ResetRequest(BaseModel):
     table: str  # 'players' | 'matches' | 'stats' | 'all'
-    year: Optional[int] = None
+    season: Optional[int] = None  # null이면 전체 기간
 logger = get_logger(__name__)
 
 
@@ -185,18 +185,21 @@ def reset_data(
     """
     테이블별 / 시즌별 데이터 초기화 (관리자 전용)
     - table: 'players' | 'matches' | 'stats' | 'all'
-    - year: null이면 전체, 숫자면 해당 연도만
+    - season: null이면 전체 기간, 숫자면 해당 시즌만 (한국 날짜 기준)
     """
+    if req.season is not None and not season_rules.is_valid_season(req.season):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"없는 시즌입니다: {req.season}",
+        )
+
     try:
         deleted = {}
-
-        def date_bounds(y):
-            return date(y, 1, 1), date(y + 1, 1, 1)
 
         def delete_stats(y):
             q = db.query(MatchStats)
             if y:
-                start_date, end_date = date_bounds(y)
+                start_date, end_date = season_rules.season_bounds(y)
                 match_ids = [
                     m.id
                     for m in db.query(Match.id).filter(
@@ -212,7 +215,7 @@ def reset_data(
         def delete_matches(y):
             q = db.query(Match)
             if y:
-                start_date, end_date = date_bounds(y)
+                start_date, end_date = season_rules.season_bounds(y)
                 q = q.filter(
                     Match.play_date >= start_date,
                     Match.play_date < end_date,
@@ -222,8 +225,10 @@ def reset_data(
         def delete_players(y):
             q = db.query(Player)
             if y:
-                start_date = datetime(y, 1, 1)
-                end_date = datetime(y + 1, 1, 1)
+                # 가입일은 UTC로 저장 → 시즌 경계(한국 0시)를 UTC로 바꿔 비교
+                start_day, end_day = season_rules.season_bounds(y)
+                start_date = season_rules.kst_midnight_as_utc(start_day)
+                end_date = season_rules.kst_midnight_as_utc(end_day)
                 q = q.filter(
                     Player.created_at >= start_date,
                     Player.created_at < end_date,
@@ -231,25 +236,25 @@ def reset_data(
             return q.delete(synchronize_session=False)
 
         table = req.table
-        year = req.year
+        season = req.season
 
         if table in ('stats', 'all'):
-            deleted['stats'] = delete_stats(year)
+            deleted['stats'] = delete_stats(season)
         if table in ('matches', 'all'):
             if table == 'matches':
-                deleted['stats'] = delete_stats(year)
-            deleted['matches'] = delete_matches(year)
+                deleted['stats'] = delete_stats(season)
+            deleted['matches'] = delete_matches(season)
         if table in ('players', 'all'):
-            deleted['players'] = delete_players(year)
+            deleted['players'] = delete_players(season)
 
         db.commit()
 
-        year_label = f"{year}년" if year else "전체"
+        season_label = season_rules.season_name(season) if season else "전체"
         table_labels = {'players': '플레이어', 'matches': '매치', 'stats': '통계', 'all': '전체'}
         parts = [f"{table_labels.get(k, k)} {v}건" for k, v in deleted.items() if v > 0]
         summary = ', '.join(parts) if parts else '삭제된 데이터 없음'
 
-        logger.warning(f"관리자: 데이터 초기화 - {table_labels[table]} {year_label} ({summary})")
+        logger.warning(f"관리자: 데이터 초기화 - {table_labels[table]} {season_label} ({summary})")
 
         return {"message": f"{summary} 삭제 완료"}
     except Exception as e:

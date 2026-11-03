@@ -4,9 +4,13 @@ from types import SimpleNamespace
 
 from jinja2 import Environment, FileSystemLoader
 
+from core import season as season_rules
+
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 TEMPLATES = Environment(loader=FileSystemLoader(TEMPLATES_DIR))
+# main.py와 같이 base.html이 쓰는 시즌 목록 등록
+TEMPLATES.globals["season_context"] = season_rules.season_context
 
 
 def scoreboard_back_url(query_params):

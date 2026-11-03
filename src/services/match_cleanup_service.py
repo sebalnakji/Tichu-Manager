@@ -2,8 +2,9 @@
 Match Cleanup Service
 미완료 게임 자동 정리 (3일 이전 데이터 삭제)
 """
-from datetime import date, timedelta
+from datetime import timedelta
 
+from core import season as season_rules
 from core.database import SessionLocal
 from core.logging_config import get_logger
 from models.models import Match, MatchStats
@@ -19,7 +20,7 @@ def cleanup_unfinished_matches():
     """
     db = SessionLocal()
     try:
-        cutoff_date = date.today() - timedelta(days=3)
+        cutoff_date = season_rules.today_kst() - timedelta(days=3)
 
         stale_matches = db.query(Match).filter(
             Match.status == "PLAYING",

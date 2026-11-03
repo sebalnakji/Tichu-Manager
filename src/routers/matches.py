@@ -6,8 +6,9 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
-from datetime import datetime, date
+from datetime import date
 
+from core import season as season_rules
 from core.database import get_db
 from core.logging_config import get_logger
 from models.models import Match, Player, MatchStats
@@ -27,6 +28,7 @@ from dto.match import (
     PlayerInfo
 )
 from routers.admin import verify_admin
+from routers.season_param import season_query
 
 router = APIRouter(prefix="/api/matches", tags=["Matches"])
 logger = get_logger(__name__)
@@ -148,7 +150,7 @@ def create_match(match: MatchCreate, db: Session = Depends(get_db)):
     새 게임 매치 생성
     """
     new_match = Match(
-        play_date=date.today(),
+        play_date=season_rules.today_kst(),
         team_a_ids=match.team_a_ids,
         team_b_ids=match.team_b_ids,
         status="PLAYING",
@@ -232,7 +234,7 @@ def _parse_player_ids(raw: Optional[str]) -> List[int]:
 
 @router.get("/history", response_model=HistoryPageResponse)
 def get_match_history(
-    year: Optional[int] = Query(default=None, description="시즌 (생략 시 전체 기간)"),
+    season: Optional[int] = Depends(season_query),
     player_ids: Optional[str] = Query(default=None, description="1명=개인, 2명=팀 (쉼표 구분)"),
     before_date: Optional[date] = Query(default=None, description="이 날짜보다 이전 기록부터 (다음 페이지 커서)"),
     db: Session = Depends(get_db),
@@ -244,7 +246,7 @@ def get_match_history(
     """
     return HistoryService.get_history_page(
         db,
-        year=year,
+        season=season,
         player_ids=_parse_player_ids(player_ids),
         before_date=before_date,
     )
@@ -252,11 +254,11 @@ def get_match_history(
 
 @router.get("/history/players", response_model=List[HistoryPlayerOption])
 def get_match_history_players(
-    year: Optional[int] = Query(default=None, description="시즌 (생략 시 전체 기간)"),
+    season: Optional[int] = Depends(season_query),
     db: Session = Depends(get_db),
 ):
     """게임 기록 사람 선택 줄: 시즌에 경기한 사람(경기 수 순) + 같은 팀을 했던 사람"""
-    return HistoryService.get_player_options(db, year)
+    return HistoryService.get_player_options(db, season)
 
 
 @router.get("/ongoing/{player_id}")
@@ -321,7 +323,7 @@ def get_today_record(
 
     # 오늘 날짜의 매치만 조회
     today_matches = db.query(Match).filter(
-        Match.play_date == date.today(),
+        Match.play_date == season_rules.today_kst(),
         Match.status == "FINISHED"
     ).all()
 
@@ -376,7 +378,7 @@ def get_match_detail(match_id: int, db: Session = Depends(get_db)):
         match.team_a_ids,
         match.team_b_ids,
         db,
-        datetime.now().year,
+        season_rules.current_season(),
     )
 
     def build_players(player_ids: list[int]) -> list[PlayerInfo]:
