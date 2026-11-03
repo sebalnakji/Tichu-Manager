@@ -295,13 +295,28 @@ class StatsService:
         matches = StatsService._get_finished_matches(db, season)
         recent_matches = StatsService._get_recent_matches(db, season)
         all_tichu_stats = StatsService._get_match_stats(db, season)
+        return StatsService.build_all_player_stats(
+            players, matches, recent_matches, all_tichu_stats
+        )
 
+    @staticmethod
+    def build_all_player_stats(
+        players: List[Player],
+        matches: list,
+        recent_matches: list,
+        tichu_stats: list,
+    ) -> List[PlayerStats]:
+        """이미 읽은 경기·티츄 기록으로 모든 개인 통계 (랭킹·개인 분석 공통)
+
+        경기를 한 번 훑어 사람별 자기 경기만 나눠 넘긴다 (사람마다 전체를 다시 훑지 않음).
+        recent_matches는 지금처럼 모두에게 같은 목록(시즌 최근 20경기)을 넘긴다.
+        """
         matches_by_player: dict[int, list] = defaultdict(list)
         for match in matches:
             for player_id in set(match.team_a_ids) | set(match.team_b_ids):
                 matches_by_player[player_id].append(match)
         stats_by_player: dict[int, list] = defaultdict(list)
-        for stat in all_tichu_stats:
+        for stat in tichu_stats:
             stats_by_player[stat.player_id].append(stat)
 
         return [

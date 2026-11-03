@@ -36,15 +36,11 @@ class DashboardService:
 
     @staticmethod
     def _ranked(players: List[Player], matches: list, stats: list) -> List[PlayerStats]:
-        """경기·티츄 기록 묶음으로 랭킹 화면과 같은 순서의 개인 통계"""
-        stats_by_player: Dict[int, list] = defaultdict(list)
-        for stat in stats:
-            stats_by_player[stat.player_id].append(stat)
+        """경기·티츄 기록 묶음으로 랭킹 화면과 같은 순서의 개인 통계 (랭킹과 같은 계산 함수)"""
         recent = matches[:20]  # matches는 최신순
-        return StatsService.sort_leaderboard([
-            StatsService._build_player_stats(player, matches, recent, stats_by_player[player.id])
-            for player in players
-        ])
+        return StatsService.sort_leaderboard(
+            StatsService.build_all_player_stats(players, matches, recent, stats)
+        )
 
     @staticmethod
     def _rank_of(ranked: List[PlayerStats], player_id: int) -> Optional[int]:
