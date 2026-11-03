@@ -340,12 +340,12 @@ class DashboardService:
             average=DashboardService._tichu_numbers(selected_stats, person_games),
         )
 
-        # 시즌 누적 승률
-        win_rate, wins = [], 0
-        for index, match in enumerate(ordered, start=1):
+        # 승패 흐름: 누적 승패 차이 (판이 쌓여도 납작해지지 않음)
+        net_wins, net = [], 0
+        for match in ordered:
             side = "A" if player_id in match.team_a_ids else "B"
-            wins += int(match.winner_team == side)
-            win_rate.append(round(wins / index * 100, 1))
+            net += 1 if match.winner_team == side else -1
+            net_wins.append(net)
 
         # 점수 차 분포
         labels = [f"~{MARGIN_BIN * (i + 1)}" for i in range(MARGIN_BIN_COUNT - 1)]
@@ -363,7 +363,7 @@ class DashboardService:
 
         return DashboardCharts(
             tichu=tichu,
-            win_rate=win_rate,
+            net_wins=net_wins,
             ranks=DashboardService._rank_trend(players, player_id, selected, selected_stats),
             margins=MarginBins(labels=labels, wins=win_bins, losses=loss_bins),
         )

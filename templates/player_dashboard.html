@@ -451,9 +451,8 @@
 
     function renderCharts(charts) {
         if (!charts) return '';
-        const seasonLabel = selectedSeason ? '시즌 누적' : '전체 누적';
         return section('📊 티츄 비교', `<div class="chart-card" id="chart-tichu"></div>`) +
-            section(`📈 승률 추이 <span class="t-muted font-bold">· ${seasonLabel}</span>`, `<div class="chart-card" id="chart-winrate"></div>`) +
+            section('📈 승패 흐름 <span class="t-muted font-bold">· 승 − 패 누적</span>', `<div class="chart-card" id="chart-netwins"></div>`) +
             section('🏆 순위 변화', `<div class="chart-card" id="chart-rank"></div>`) +
             section('📊 점수 차 분포', `<div class="chart-card" id="chart-margin"></div>`);
     }
@@ -462,7 +461,7 @@
         lastCharts = charts;
         if (!charts || !document.getElementById('chart-tichu')) return;
         drawTichu(charts.tichu);
-        drawWinRate(charts.win_rate);
+        drawNetWins(charts.net_wins);
         drawRank(charts.ranks);
         drawMargins(charts.margins);
     }
@@ -550,27 +549,34 @@
         svg.addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') setTimeout(hide, 1500); });
     }
 
-    // 📈 승률 추이: 경기 순서대로 시즌 누적 승률, 50% 기준선
-    function drawWinRate(rates) {
-        const card = document.getElementById('chart-winrate');
+    // 📈 승패 흐름: 경기 순서대로 누적 승패 차이(승 − 패), 0 = 승과 패가 같음
+    const signedNum = n => n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0';
+    function drawNetWins(nets) {
+        const card = document.getElementById('chart-netwins');
         const { svg, width, height } = newSvg(card, 150);
-        const left = 30, right = 34, top = 8, bottom = 18;
+        const left = 30, right = 30, top = 8, bottom = 18;
         const plotW = width - left - right, plotH = height - top - bottom;
-        const x = i => left + (rates.length === 1 ? plotW / 2 : i / (rates.length - 1) * plotW);
-        const y = v => top + (1 - v / 100) * plotH;
-        [0, 50, 100].forEach(v => {
-            svgEl('line', { x1: left, x2: left + plotW, y1: y(v), y2: y(v), stroke: v === 50 ? css('--chart-axis') : css('--chart-grid'), 'stroke-width': 1, 'stroke-dasharray': v === 50 ? '3 3' : '' }, svg);
-            svgEl('text', { x: left - 6, y: y(v) + 3, 'text-anchor': 'end' }, svg).textContent = `${v}%`;
+        // 0을 항상 포함하고 위아래로 한 칸 여유
+        const hi = Math.max(...nets, 0) + 1, lo = Math.min(...nets, 0) - 1;
+        // 왼쪽 끝 = 시작(0), i번째 판은 (i + 1) / 판 수 위치
+        const x = i => left + (i + 1) / nets.length * plotW;
+        const y = v => top + (hi - v) / (hi - lo) * plotH;
+        [hi, 0, lo].forEach(v => {
+            svgEl('line', { x1: left, x2: left + plotW, y1: y(v), y2: y(v), stroke: v === 0 ? css('--chart-axis') : css('--chart-grid'), 'stroke-width': 1, 'stroke-dasharray': v === 0 ? '3 3' : '' }, svg);
+            svgEl('text', { x: left - 6, y: y(v) + 3, 'text-anchor': 'end' }, svg).textContent = signedNum(v);
         });
-        const xs = rates.map((_, i) => x(i)), ys = rates.map(v => y(v));
-        svgEl('path', { d: xs.map((px, i) => `${i ? 'L' : 'M'}${px},${ys[i]}`).join(''), fill: 'none', stroke: css('--chart-me'), 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
-        const last = rates.length - 1;
+        // 첫 판 전(0)에서 시작
+        const xs = nets.map((_, i) => x(i)), ys = nets.map(v => y(v));
+        const start = `M${left},${y(0)}`;
+        svgEl('path', { d: start + xs.map((px, i) => `L${px},${ys[i]}`).join(''), fill: 'none', stroke: css('--chart-me'), 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
+        const last = nets.length - 1;
         svgEl('circle', { cx: xs[last], cy: ys[last], r: 4, fill: css('--chart-me'), stroke: css('--bg-card'), 'stroke-width': 2 }, svg);
-        svgEl('text', { x: xs[last] + 6, y: ys[last] + 3, class: 'value-label' }, svg).textContent = `${rates[last]}%`;
-        svgEl('text', { x: left, y: height - 4 }, svg).textContent = '1판';
-        svgEl('text', { x: left + plotW, y: height - 4, 'text-anchor': 'end' }, svg).textContent = `${rates.length}판`;
-        svg.setAttribute('aria-label', `누적 승률: 1판 ${rates[0]}%에서 ${rates.length}판 ${rates[last]}%`);
-        attachLineTip(card, svg, xs, ys, i => `${i + 1}번째 판 · ${rates[i]}%`);
+        svgEl('text', { x: xs[last] + 6, y: ys[last] + 3, class: 'value-label' }, svg).textContent = signedNum(nets[last]);
+        svgEl('text', { x: left, y: height - 4 }, svg).textContent = '시작';
+        svgEl('text', { x: left + plotW, y: height - 4, 'text-anchor': 'end' }, svg).textContent = `${nets.length}판`;
+        const record = i => { const n = i + 1, w = (n + nets[i]) / 2; return `${w}승 ${n - w}패`; };
+        svg.setAttribute('aria-label', `승패 흐름: ${nets.length}판 동안 승 − 패 ${signedNum(nets[last])} (${record(last)}), 가장 높을 때 ${signedNum(Math.max(...nets))}, 가장 낮을 때 ${signedNum(Math.min(...nets))}`);
+        attachLineTip(card, svg, xs, ys, i => `${i + 1}번째 판 · ${record(i)} (${signedNum(nets[i])})`);
     }
 
     // 🏆 순위 변화: 경기가 있었던 날마다 그날까지의 랭킹 순위 (1위가 위)

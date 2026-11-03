@@ -366,7 +366,7 @@ def test_win_rate_tichu_and_margin_charts(client, db, player_ids, monkeypatch):
     db.commit()
 
     charts = client.get(f"/api/stats/player/{p[0]}/dashboard").json()["charts"]
-    assert charts["win_rate"] == [100.0, 100.0, 66.7, 50.0]  # 경기 순서대로 시즌 누적 승률
+    assert charts["net_wins"] == [1, 2, 1, 0]  # 경기 순서대로 누적 승패 차이 (승 승 패 패)
     me, avg = charts["tichu"]["me"], charts["tichu"]["average"]
     assert (me["tichu_per_game"], me["tichu_rate"], me["tichu_try"], me["tichu_success"]) == (0.5, 50.0, 2, 1)
     assert (me["grand_per_game"], me["grand_rate"]) == (0.0, 0.0)

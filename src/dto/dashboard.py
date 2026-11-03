@@ -99,7 +99,7 @@ class MarginBins(BaseModel):
 
 class DashboardCharts(BaseModel):
     tichu: TichuCompare
-    win_rate: List[float]   # 경기 순서대로 시즌 누적 승률 % (소수 한 자리)
+    net_wins: List[int]     # 경기 순서대로 누적 승패 차이 (승 − 패): 이기면 +1, 지면 −1
     ranks: List[RankPoint]
     margins: MarginBins
 
