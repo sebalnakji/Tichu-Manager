@@ -17,7 +17,7 @@ from dto.history import (
     HistoryRecord,
 )
 from models.models import Match, MatchStats, Player
-from services.stats_service import StatsService
+from services.stats_service import MATCH_SUMMARY_COLUMNS, StatsService
 
 DEFAULT_PAGE_DAYS = 3
 
@@ -26,9 +26,9 @@ class HistoryService:
     """게임 기록 조회 서비스"""
 
     @staticmethod
-    def _season_matches(db: Session, season: Optional[int]) -> List[Match]:
-        """시즌의 완료 경기를 최신 날짜순으로 조회한다."""
-        query = db.query(Match).filter(Match.status == "FINISHED")
+    def _season_matches(db: Session, season: Optional[int]) -> list:
+        """시즌의 완료 경기를 최신 날짜순으로 조회한다 (목록에 필요한 칸만, 라운드 JSON 제외)."""
+        query = db.query(*MATCH_SUMMARY_COLUMNS, Match.score_a, Match.score_b).filter(Match.status == "FINISHED")
         query = StatsService._filter_query_by_season(query, Match.play_date, season)
         return query.order_by(Match.play_date.desc(), Match.id.desc()).all()
 

@@ -12,6 +12,16 @@ from models.models import Player, Match, MatchStats
 from dto.stats import PlayerStats, TeamStats
 
 
+# 통계에 필요한 경기 칸만 (라운드 JSON은 읽지 않음 — 판당 약 1.2KB, 쌓일수록 느려짐)
+MATCH_SUMMARY_COLUMNS = (
+    Match.id,
+    Match.play_date,
+    Match.team_a_ids,
+    Match.team_b_ids,
+    Match.winner_team,
+)
+
+
 class StatsService:
     """통계 계산 서비스"""
 
@@ -138,14 +148,14 @@ class StatsService:
         )
 
     @staticmethod
-    def _get_finished_matches(db: Session, season: Optional[int]) -> List[Match]:
-        query = db.query(Match).filter(Match.status == "FINISHED")
+    def _get_finished_matches(db: Session, season: Optional[int]) -> list:
+        query = db.query(*MATCH_SUMMARY_COLUMNS).filter(Match.status == "FINISHED")
         query = StatsService._filter_query_by_season(query, Match.play_date, season)
         return query.all()
 
     @staticmethod
-    def _get_recent_matches(db: Session, season: Optional[int]) -> List[Match]:
-        query = db.query(Match).filter(Match.status == "FINISHED")
+    def _get_recent_matches(db: Session, season: Optional[int]) -> list:
+        query = db.query(*MATCH_SUMMARY_COLUMNS).filter(Match.status == "FINISHED")
         query = StatsService._filter_query_by_season(query, Match.play_date, season)
         return query.order_by(Match.play_date.desc(), Match.id.desc()).limit(20).all()
 
@@ -175,7 +185,7 @@ class StatsService:
         players_by_id = {player.id: player for player in players}
 
         finished_matches = (
-            db.query(Match)
+            db.query(*MATCH_SUMMARY_COLUMNS)
             .filter(Match.status == "FINISHED")
             .order_by(Match.play_date.desc(), Match.id.desc())
             .all()
