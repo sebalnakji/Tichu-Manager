@@ -27,6 +27,36 @@ class StatsService:
         start_date, end_date = StatsService._year_bounds(year)
         return query.filter(column >= start_date, column < end_date)
 
+    RECENT_FORM_GAMES = 5
+
+    @staticmethod
+    def _recent_form(results: List[tuple[Match, bool]]) -> tuple[int, List[str]]:
+        """(경기, 승리 여부) 목록으로 연승/연패와 최근 5경기 결과를 구한다.
+
+        Returns:
+            (streak, recent_results): streak은 +N 연승 / -N 연패,
+            recent_results는 오래된 → 최근 순 "W"/"L"
+        """
+        ordered = sorted(
+            results,
+            key=lambda item: (item[0].play_date, item[0].id),
+            reverse=True,
+        )
+        streak = 0
+        for _, won in ordered:
+            if streak == 0:
+                streak = 1 if won else -1
+            elif (streak > 0) == won:
+                streak += 1 if won else -1
+            else:
+                break
+
+        recent = [
+            "W" if won else "L"
+            for _, won in ordered[:StatsService.RECENT_FORM_GAMES]
+        ]
+        return streak, list(reversed(recent))
+
     @staticmethod
     def _build_player_stats(
         player: Player,
@@ -39,20 +69,24 @@ class StatsService:
         total_games = 0
         wins = 0
         losses = 0
+        results: List[tuple[Match, bool]] = []
 
         for match in matches:
             if player_id in match.team_a_ids:
                 total_games += 1
-                if match.winner_team == "A":
-                    wins += 1
-                else:
-                    losses += 1
+                won = match.winner_team == "A"
             elif player_id in match.team_b_ids:
                 total_games += 1
-                if match.winner_team == "B":
-                    wins += 1
-                else:
-                    losses += 1
+                won = match.winner_team == "B"
+            else:
+                continue
+            if won:
+                wins += 1
+            else:
+                losses += 1
+            results.append((match, won))
+
+        streak, recent_results = StatsService._recent_form(results)
 
         recent_games = 0
         recent_wins = 0
@@ -102,6 +136,8 @@ class StatsService:
             grand_try=grand_try,
             grand_success=grand_success,
             grand_success_rate=round(grand_success_rate, 2),
+            streak=streak,
+            recent_results=recent_results,
         )
 
     @staticmethod
@@ -301,20 +337,24 @@ class StatsService:
         total_games = 0
         wins = 0
         losses = 0
+        results: List[tuple[Match, bool]] = []
 
         for match in matches:
             if player1_id in match.team_a_ids and player2_id in match.team_a_ids:
                 total_games += 1
-                if match.winner_team == "A":
-                    wins += 1
-                else:
-                    losses += 1
+                won = match.winner_team == "A"
             elif player1_id in match.team_b_ids and player2_id in match.team_b_ids:
                 total_games += 1
-                if match.winner_team == "B":
-                    wins += 1
-                else:
-                    losses += 1
+                won = match.winner_team == "B"
+            else:
+                continue
+            if won:
+                wins += 1
+            else:
+                losses += 1
+            results.append((match, won))
+
+        _, recent_results = StatsService._recent_form(results)
 
         tichu_try = sum(1 for stat in tichu_stats if stat.is_tichu_try)
         tichu_success = sum(1 for stat in tichu_stats if stat.is_tichu_succ)
@@ -350,6 +390,7 @@ class StatsService:
             grand_try=grand_try,
             grand_success=grand_success,
             grand_success_rate=round(grand_success_rate, 1),
+            recent_results=recent_results,
         )
 
     @staticmethod

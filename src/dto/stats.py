@@ -3,7 +3,7 @@ Stats DTO
 통계 관련 데이터 전송 객체
 """
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 
 
 class PlayerStats(BaseModel):
@@ -24,6 +24,8 @@ class PlayerStats(BaseModel):
     grand_try: int
     grand_success: int
     grand_success_rate: float
+    streak: int = 0  # 최근부터 이어진 승패: +3 = 3연승, -2 = 2연패
+    recent_results: List[str] = []  # 최근 5경기 "W"/"L", 오래된 → 최근 순
 
 
 class TeamStats(BaseModel):
@@ -45,6 +47,7 @@ class TeamStats(BaseModel):
     grand_try: int  # 추가
     grand_success: int  # 추가
     grand_success_rate: float
+    recent_results: List[str] = []  # 최근 5경기 "W"/"L", 오래된 → 최근 순
 
 
 class LeaderboardResponse(BaseModel):

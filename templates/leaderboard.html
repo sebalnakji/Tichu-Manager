@@ -27,6 +27,14 @@
         --badge-grand-bg: rgba(147,51,234,0.08);
         --badge-grand-border: rgba(147,51,234,0.2);
         --badge-grand-text: #7E22CE;
+        --badge-win-bg: rgba(16,185,129,0.08);
+        --badge-win-border: rgba(16,185,129,0.25);
+        --badge-win-text: #047857;
+        --badge-lose-bg: rgba(239,68,68,0.08);
+        --badge-lose-border: rgba(239,68,68,0.25);
+        --badge-lose-text: #B91C1C;
+        --form-win: #10B981;
+        --form-lose: #EF4444;
 
         --tab-inactive: #9CA3AF;
         --spinner-color: var(--accent);
@@ -55,6 +63,14 @@
         --badge-grand-bg: rgba(147,51,234,0.1);
         --badge-grand-border: rgba(147,51,234,0.2);
         --badge-grand-text: #C084FC;
+        --badge-win-bg: rgba(16,185,129,0.12);
+        --badge-win-border: rgba(16,185,129,0.25);
+        --badge-win-text: #34D399;
+        --badge-lose-bg: rgba(239,68,68,0.12);
+        --badge-lose-border: rgba(239,68,68,0.25);
+        --badge-lose-text: #F87171;
+        --form-win: #10B981;
+        --form-lose: #EF4444;
 
         --tab-inactive: #6B7280;
         --spinner-color: var(--accent);
@@ -137,6 +153,15 @@
     .badge-default { background-color: var(--badge-default-bg); border-color: var(--badge-default-border); color: var(--badge-default-text); }
     .badge-tichu { background-color: var(--badge-tichu-bg); border-color: var(--badge-tichu-border); color: var(--badge-tichu-text); }
     .badge-grand { background-color: var(--badge-grand-bg); border-color: var(--badge-grand-border); color: var(--badge-grand-text); }
+    .badge-win { background-color: var(--badge-win-bg); border-color: var(--badge-win-border); color: var(--badge-win-text); }
+    .badge-lose { background-color: var(--badge-lose-bg); border-color: var(--badge-lose-border); color: var(--badge-lose-text); }
+
+    /* 이름 옆 최근 흐름: 연승/연패 배지 + 최근 5경기 점(오른쪽이 최근) */
+    .name-row { display: flex; align-items: center; gap: 0.375rem; min-width: 0; padding-right: 0.5rem; }
+    .form-dots { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
+    .form-dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; }
+    .form-dot.win { background-color: var(--form-win); }
+    .form-dot.lose { background-color: var(--form-lose); }
 
     .empty-state { color: var(--text-muted); }
     .error-state { color: #F43F5E; font-size: 0.75rem; }
@@ -252,6 +277,22 @@
         }
     }
 
+    // 연승/연패 배지: 2연승·2연패부터 표시
+    function streakBadge(streak) {
+        if (!streak || Math.abs(streak) < 2) return '';
+        return streak > 0
+            ? `<span class="badge badge-win shrink-0">${streak}연승</span>`
+            : `<span class="badge badge-lose shrink-0">${-streak}연패</span>`;
+    }
+
+    // 최근 5경기 점: 초록 = 승, 빨강 = 패, 오른쪽이 가장 최근
+    function formDots(results) {
+        if (!results || results.length === 0) return '';
+        const label = results.map(r => r === 'W' ? '승' : '패').join(' ');
+        const dots = results.map(r => `<span class="form-dot ${r === 'W' ? 'win' : 'lose'}"></span>`).join('');
+        return `<span class="form-dots" role="img" aria-label="최근 ${results.length}경기: ${label}">${dots}</span>`;
+    }
+
     async function loadIndividualLeaderboard() {
         try {
             const url = currentYear ? `/api/stats/leaderboard?year=${currentYear}` : '/api/stats/leaderboard';
@@ -281,7 +322,11 @@
                     </div>
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-center mb-2">
-                            <span class="player-name-text truncate pr-2">${entry.stats.player_name}</span>
+                            <div class="name-row">
+                                <span class="player-name-text truncate">${entry.stats.player_name}</span>
+                                ${formDots(entry.stats.recent_results)}
+                                ${streakBadge(entry.stats.streak)}
+                            </div>
                             <span class="win-rate-text shrink-0">${entry.stats.win_rate}%</span>
                         </div>
                         <div class="flex flex-wrap gap-1.5">
@@ -331,7 +376,10 @@
                     </div>
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-center mb-2">
-                            <span class="team-name-text truncate pr-2">${entry.stats.team_name}</span>
+                            <div class="name-row">
+                                <span class="team-name-text truncate">${entry.stats.team_name}</span>
+                                ${formDots(entry.stats.recent_results)}
+                            </div>
                             <span class="win-rate-text shrink-0">${entry.stats.win_rate}%</span>
                         </div>
                         <div class="flex flex-wrap gap-1.5">
