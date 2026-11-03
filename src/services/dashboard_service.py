@@ -17,8 +17,13 @@ from dto.dashboard import (
     DashboardPlayer,
     PeopleRecords,
     PersonRecord,
+    DashboardCharts,
+    MarginBins,
     MatchMargin,
     PlayerDashboardResponse,
+    RankPoint,
+    TichuCompare,
+    TichuNumbers,
     SeasonRecord,
     SeasonRecords,
 )
@@ -28,6 +33,8 @@ from services.score_service import ScoreService
 from services.stats_service import StatsService
 
 MEDAL_RANKS = 3            # 끝난 시즌 최종 1~3위에 메달
+MARGIN_BIN = 200           # 점수 차 분포 구간 폭
+MARGIN_BIN_COUNT = 4       # 0~200, 200~400, 400~600, 600+ 점
 HIGHLIGHT_MIN_GAMES = 10   # 맛집·천적·베프·악연은 10판 이상 중에서 (랭킹 정식 순위 기준과 같음)
 
 
@@ -235,6 +242,132 @@ class DashboardService:
             grand_calls_per_game=round(sum(1 for s in mine if s.is_grand_try) / count, 1),
         )
 
+    # ── 📊 그래프 ──
+
+    @staticmethod
+    def _tichu_numbers(stats: list, games: int) -> TichuNumbers:
+        tichu_try = sum(1 for s in stats if s.is_tichu_try)
+        tichu_success = sum(1 for s in stats if s.is_tichu_succ)
+        grand_try = sum(1 for s in stats if s.is_grand_try)
+        grand_success = sum(1 for s in stats if s.is_grand_succ)
+        per_game = lambda n: round(n / games, 2) if games else 0.0
+        rate = lambda ok, tried: round(ok / tried * 100, 1) if tried else 0.0
+        return TichuNumbers(
+            tichu_per_game=per_game(tichu_try),
+            grand_per_game=per_game(grand_try),
+            tichu_rate=rate(tichu_success, tichu_try),
+            grand_rate=rate(grand_success, grand_try),
+            tichu_try=tichu_try,
+            tichu_success=tichu_success,
+            grand_try=grand_try,
+            grand_success=grand_success,
+        )
+
+    @staticmethod
+    def _rank_trend(players: List[Player], player_id: int, matches: list, stats: list) -> List[RankPoint]:
+        """경기가 있었던 날마다, 그날까지의 랭킹에서 내 순위
+
+        랭킹 화면(StatsService.sort_leaderboard)과 같은 정렬을 누적 숫자로 바로 계산한다
+        (날마다 통계 객체를 다시 만들지 않음).
+        """
+        date_by_match = {m.id: m.play_date for m in matches}
+        stats_by_date: Dict = defaultdict(list)
+        for stat in stats:
+            if stat.match_id in date_by_match:
+                stats_by_date[date_by_match[stat.match_id]].append(stat)
+        matches_by_date: Dict = defaultdict(list)
+        for match in matches:
+            matches_by_date[match.play_date].append(match)
+
+        # 사람별 누적 [경기, 승, 스몰 시도, 스몰 성공, 라지 시도, 라지 성공]
+        totals = {p.id: [0, 0, 0, 0, 0, 0] for p in players}
+        order = {p.id: index for index, p in enumerate(players)}  # 동률은 랭킹과 같이 사람 목록 순
+        points = []
+        for day in sorted(matches_by_date):
+            for match in matches_by_date[day]:
+                for side, team in (("A", match.team_a_ids), ("B", match.team_b_ids)):
+                    for pid in set(team):
+                        if pid in totals:
+                            totals[pid][0] += 1
+                            totals[pid][1] += int(match.winner_team == side)
+            for stat in stats_by_date[day]:
+                if stat.player_id in totals:
+                    t = totals[stat.player_id]
+                    t[2] += int(bool(stat.is_tichu_try))
+                    t[3] += int(bool(stat.is_tichu_succ))
+                    t[4] += int(bool(stat.is_grand_try))
+                    t[5] += int(bool(stat.is_grand_succ))
+
+            def key(pid):
+                games, wins, tt, ts, gt, gs = totals[pid]
+                return (
+                    -(games >= 10),
+                    -round(wins / games * 100, 1),
+                    -games,
+                    -wins,
+                    -(round(ts / tt * 100, 2) if tt else 0.0),
+                    -(round(gs / gt * 100, 2) if gt else 0.0),
+                    order[pid],
+                )
+
+            ranked = sorted((pid for pid in totals if totals[pid][0] > 0), key=key)
+            if player_id in ranked:
+                points.append(RankPoint(
+                    date=day.isoformat(),
+                    rank=ranked.index(player_id) + 1,
+                    ranked=len(ranked),
+                ))
+        return points
+
+    @staticmethod
+    def _charts(
+        player_id: int,
+        players: List[Player],
+        selected: list,
+        selected_stats: list,
+        my_games: list,
+    ) -> Optional[DashboardCharts]:
+        if not my_games:
+            return None
+        ordered = sorted(my_games, key=lambda m: (m.play_date, m.id))
+
+        # 티츄 비교: 나 vs 모임 평균 (사람-게임 = 경기 수 × 참가자 수)
+        game_ids = {m.id for m in my_games}
+        mine = [s for s in selected_stats if s.player_id == player_id and s.match_id in game_ids]
+        person_games = sum(len(set(m.team_a_ids)) + len(set(m.team_b_ids)) for m in selected)
+        tichu = TichuCompare(
+            me=DashboardService._tichu_numbers(mine, len(my_games)),
+            average=DashboardService._tichu_numbers(selected_stats, person_games),
+        )
+
+        # 시즌 누적 승률
+        win_rate, wins = [], 0
+        for index, match in enumerate(ordered, start=1):
+            side = "A" if player_id in match.team_a_ids else "B"
+            wins += int(match.winner_team == side)
+            win_rate.append(round(wins / index * 100, 1))
+
+        # 점수 차 분포
+        labels = [f"~{MARGIN_BIN * (i + 1)}" for i in range(MARGIN_BIN_COUNT - 1)]
+        labels.append(f"{MARGIN_BIN * (MARGIN_BIN_COUNT - 1)}+")
+        win_bins = [0] * MARGIN_BIN_COUNT
+        loss_bins = [0] * MARGIN_BIN_COUNT
+        for match in ordered:
+            side = "A" if player_id in match.team_a_ids else "B"
+            margin = (match.score_a - match.score_b) * (1 if side == "A" else -1)
+            index = min(abs(margin) // MARGIN_BIN, MARGIN_BIN_COUNT - 1)
+            if match.winner_team == side:
+                win_bins[index] += 1
+            else:
+                loss_bins[index] += 1
+
+        return DashboardCharts(
+            tichu=tichu,
+            win_rate=win_rate,
+            ranks=DashboardService._rank_trend(players, player_id, selected, selected_stats),
+            margins=MarginBins(labels=labels, wins=win_bins, losses=loss_bins),
+        )
+
     @staticmethod
     def get_dashboard(
         db: Session,
@@ -321,6 +454,7 @@ class DashboardService:
         )
         selected_stats = stats if season is None else stats_by_season[season]
         records = DashboardService._season_records(player_id, my_games, selected_stats)
+        charts = DashboardService._charts(player_id, players, selected, selected_stats, my_games)
 
         return PlayerDashboardResponse(
             player=DashboardPlayer(id=player.id, name=player.name, profile_url=player.profile_url or ""),
@@ -334,4 +468,5 @@ class DashboardService:
             opponents=opponents,
             partners=partners,
             records=records,
+            charts=charts,
         )

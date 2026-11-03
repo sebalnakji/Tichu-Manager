@@ -67,6 +67,43 @@ class SeasonRecords(BaseModel):
     grand_calls_per_game: float   # 직접 부른 라지 티츄 ÷ 게임 수
 
 
+class TichuNumbers(BaseModel):
+    """게임당 선언 횟수 + 성공률 (나 또는 모임 평균)"""
+    tichu_per_game: float
+    grand_per_game: float
+    tichu_rate: float  # 성공률 %, 시도 없으면 0
+    grand_rate: float
+    tichu_try: int
+    tichu_success: int
+    grand_try: int
+    grand_success: int
+
+
+class TichuCompare(BaseModel):
+    me: TichuNumbers
+    average: TichuNumbers  # 그 시즌 경기한 모임 전체 (전체 선언 ÷ 전체 사람-게임, 전체 성공 ÷ 전체 시도)
+
+
+class RankPoint(BaseModel):
+    date: str   # 경기가 있었던 날
+    rank: int   # 그날 경기까지 반영한 랭킹 순위 (랭킹 화면과 같은 규칙)
+    ranked: int # 그날 순위에 오른 인원
+
+
+class MarginBins(BaseModel):
+    """최종 점수 차 분포: 구간별 승·패 수 (구간은 작은 차이 → 큰 차이 순)"""
+    labels: List[str]
+    wins: List[int]
+    losses: List[int]
+
+
+class DashboardCharts(BaseModel):
+    tichu: TichuCompare
+    win_rate: List[float]   # 경기 순서대로 시즌 누적 승률 % (소수 한 자리)
+    ranks: List[RankPoint]
+    margins: MarginBins
+
+
 class PlayerDashboardResponse(BaseModel):
     player: DashboardPlayer
     # 프로필 카드 (시즌 선택과 무관하게 고정)
@@ -81,3 +118,4 @@ class PlayerDashboardResponse(BaseModel):
     opponents: PeopleRecords  # ⚔️ 상대 전적
     partners: PeopleRecords   # 🤝 파트너 전적 (같은 팀 승률)
     records: Optional[SeasonRecords] = None  # 🏅 시즌 기록 (경기 없으면 None)
+    charts: Optional[DashboardCharts] = None  # 그래프 (경기 없으면 None)

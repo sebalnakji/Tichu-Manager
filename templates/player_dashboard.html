@@ -31,6 +31,13 @@
         --badge-lose-bg: rgba(239,68,68,0.08);
         --badge-lose-border: rgba(239,68,68,0.25);
         --badge-lose-text: #B91C1C;
+        /* 그래프: 나(강조) vs 모임 평균(회색), 승(초록) vs 패(빨강) — 색만으로 구분하지 않도록 라벨·위치 함께 */
+        --chart-me: #4F46E5;
+        --chart-avg: #8B919D;
+        --chart-win: #059669;
+        --chart-loss: #EF4444;
+        --chart-grid: rgba(0,0,0,0.06);
+        --chart-axis: #9CA3AF;
         /* 메달 배지: 금·은·동 */
         --medal-1-bg: rgba(234,179,8,0.10);
         --medal-1-border: rgba(234,179,8,0.30);
@@ -69,6 +76,12 @@
         --badge-lose-bg: rgba(239,68,68,0.12);
         --badge-lose-border: rgba(239,68,68,0.25);
         --badge-lose-text: #F87171;
+        --chart-me: #818CF8;
+        --chart-avg: #6B7280;
+        --chart-win: #34D399;
+        --chart-loss: #F87171;
+        --chart-grid: rgba(255,255,255,0.06);
+        --chart-axis: #6B7280;
         --medal-1-bg: rgba(234,179,8,0.12);
         --medal-1-border: rgba(234,179,8,0.30);
         --medal-1-text: #FCD34D;
@@ -188,6 +201,39 @@
     .record-good { color: var(--badge-win-text); }
     .record-bad { color: var(--badge-lose-text); }
     .record-none { color: var(--text-muted); }
+
+    /* ── 📊 그래프 카드 ── */
+    .chart-card {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        padding: 0.875rem 0.875rem 0.75rem;
+        position: relative;
+    }
+    .chart-legend { display: flex; gap: 0.875rem; font-size: 0.6875rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.5rem; }
+    .chart-legend i { display: inline-block; width: 0.625rem; height: 0.625rem; border-radius: 2px; margin-right: 0.25rem; vertical-align: -1px; }
+    .chart-sub { font-size: 0.6875rem; font-weight: 700; color: var(--text-muted); margin: 0.5rem 0 0.25rem; }
+    /* 가로 막대: 항목 이름 | 막대(나, 평균) | 값 */
+    .hbar-row { display: grid; grid-template-columns: 2rem minmax(0, 1fr); column-gap: 0.5rem; align-items: center; padding: 0.25rem 0; }
+    .hbar-name { font-size: 0.75rem; font-weight: 900; color: var(--text-primary); }
+    .hbar-pair { display: flex; flex-direction: column; gap: 2px; }
+    .hbar-line { display: grid; grid-template-columns: minmax(0, 1fr) 5.75rem; column-gap: 0.375rem; align-items: center; }
+    .hbar-track { height: 0.625rem; }
+    .hbar-fill { height: 100%; border-radius: 0 4px 4px 0; min-width: 2px; }
+    .hbar-value { font-size: 0.6875rem; font-weight: 700; color: var(--text-secondary); white-space: nowrap; }
+    .hbar-value b { color: var(--text-primary); font-weight: 900; }
+    /* SVG 그래프 */
+    .chart-svg { display: block; width: 100%; overflow: visible; touch-action: pan-y; }
+    .chart-svg text { font-size: 10px; font-weight: 700; fill: var(--chart-axis); }
+    .chart-svg .value-label { fill: var(--text-primary); font-weight: 900; }
+    .chart-tip {
+        position: absolute; pointer-events: none; z-index: 5;
+        background-color: var(--text-primary); color: var(--bg-card);
+        font-size: 0.6875rem; font-weight: 700; padding: 0.25rem 0.5rem; border-radius: 0.375rem;
+        white-space: nowrap; transform: translate(-50%, -110%);
+    }
+    .chart-caption { display: flex; justify-content: space-between; font-size: 0.6875rem; font-weight: 700; color: var(--text-muted); margin-top: 0.25rem; }
 
     .empty-state { color: var(--text-muted); }
     .error-state { color: #F43F5E; font-size: 0.75rem; }
@@ -360,7 +406,9 @@
         stats.innerHTML =
             renderPeople('⚔️ 상대 전적', data.opponents, '😋 맛집', '😈 천적') +
             renderPeople('🤝 파트너 전적', data.partners, '💞 베프', '💔 악연') +
-            renderRecords(data.records);
+            renderRecords(data.records) +
+            renderCharts(data.charts);
+        drawCharts(data.charts);
     }
 
     // ── 🏅 시즌 기록: 2칸 타일, 좋은 기록 초록 / 나쁜 기록 빨강, 게임을 가리키는 칸은 누르면 게임 기록 상세 ──
@@ -394,6 +442,196 @@
                 `<span class="flex flex-wrap gap-1"><span class="badge badge-tichu">스몰 ${r.tichu_calls_per_game}회</span><span class="badge badge-grand">라지 ${r.grand_calls_per_game}회</span></span>`, ''),
         ];
         return section('🏅 시즌 기록', `<div class="record-grid">${cells.join('')}</div>`);
+    }
+
+    // ── 📊 그래프 (SVG 직접 그림, 라이브러리 없음) ──
+    let lastCharts = null;
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+    function renderCharts(charts) {
+        if (!charts) return '';
+        const seasonLabel = selectedSeason ? '시즌 누적' : '전체 누적';
+        return section('📊 티츄 비교', `<div class="chart-card" id="chart-tichu"></div>`) +
+            section(`📈 승률 추이 <span class="t-muted font-bold">· ${seasonLabel}</span>`, `<div class="chart-card" id="chart-winrate"></div>`) +
+            section('🏆 순위 변화', `<div class="chart-card" id="chart-rank"></div>`) +
+            section('📊 점수 차 분포', `<div class="chart-card" id="chart-margin"></div>`);
+    }
+
+    function drawCharts(charts) {
+        lastCharts = charts;
+        if (!charts || !document.getElementById('chart-tichu')) return;
+        drawTichu(charts.tichu);
+        drawWinRate(charts.win_rate);
+        drawRank(charts.ranks);
+        drawMargins(charts.margins);
+    }
+
+    // 화면 폭이 바뀌면(회전 등) 다시 그림
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => drawCharts(lastCharts), 150);
+    });
+
+    // 📊 티츄 비교: 나(강조색) vs 모임 평균(회색), 막대마다 값 표시
+    function drawTichu(t) {
+        const bars = (rows, max, fmt) => rows.map(([name, me, avg, meDetail, avgDetail]) => `
+            <div class="hbar-row">
+                <span class="hbar-name">${name}</span>
+                <div class="hbar-pair">
+                    <div class="hbar-line">
+                        <div class="hbar-track"><div class="hbar-fill" style="width:${max ? me / max * 100 : 0}%;background:var(--chart-me)"></div></div>
+                        <span class="hbar-value"><b>${fmt(me)}</b>${meDetail}</span>
+                    </div>
+                    <div class="hbar-line">
+                        <div class="hbar-track"><div class="hbar-fill" style="width:${max ? avg / max * 100 : 0}%;background:var(--chart-avg)"></div></div>
+                        <span class="hbar-value">${fmt(avg)}${avgDetail}</span>
+                    </div>
+                </div>
+            </div>`).join('');
+        const me = t.me, avg = t.average;
+        const perGameMax = Math.max(me.tichu_per_game, avg.tichu_per_game, me.grand_per_game, avg.grand_per_game);
+        const detail = (ok, tried) => tried ? ` <span class="t-muted">(${ok}/${tried})</span>` : '';
+        document.getElementById('chart-tichu').innerHTML = `
+            <div class="chart-legend"><span><i style="background:var(--chart-me)"></i>나</span><span><i style="background:var(--chart-avg)"></i>평균</span></div>
+            <p class="chart-sub">게임당 선언 횟수</p>
+            ${bars([
+                ['스몰', me.tichu_per_game, avg.tichu_per_game, '', ''],
+                ['라지', me.grand_per_game, avg.grand_per_game, '', ''],
+            ], perGameMax, v => `${v}회`)}
+            <p class="chart-sub">성공률</p>
+            ${bars([
+                ['스몰', me.tichu_rate, avg.tichu_rate, detail(me.tichu_success, me.tichu_try), ''],
+                ['라지', me.grand_rate, avg.grand_rate, detail(me.grand_success, me.grand_try), ''],
+            ], 100, v => `${v}%`)}`;
+    }
+
+    function svgEl(tag, attrs, parent) {
+        const el = document.createElementNS(SVG_NS, tag);
+        Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+        if (parent) parent.appendChild(el);
+        return el;
+    }
+
+    function newSvg(card, height) {
+        card.innerHTML = '';
+        const width = card.clientWidth - 28; // 카드 안쪽 여백 제외
+        const svg = svgEl('svg', { class: 'chart-svg', viewBox: `0 0 ${width} ${height}`, height, role: 'img' }, card);
+        return { svg, width, height };
+    }
+
+    // 꺾은선 공통: 눌러서(또는 끌어서) 가장 가까운 점의 값 보기
+    function attachLineTip(card, svg, xs, ys, label) {
+        const tip = document.createElement('div');
+        tip.className = 'chart-tip hidden';
+        card.appendChild(tip);
+        const guide = svgEl('line', { y1: 0, y2: svg.viewBox.baseVal.height - 18, stroke: css('--chart-axis'), 'stroke-width': 1, 'stroke-dasharray': '2 3', visibility: 'hidden' }, svg);
+        const dot = svgEl('circle', { r: 4.5, fill: css('--chart-me'), stroke: css('--bg-card'), 'stroke-width': 2, visibility: 'hidden' }, svg);
+        const show = (event) => {
+            const box = svg.getBoundingClientRect();
+            const x = (event.clientX - box.left) * (svg.viewBox.baseVal.width / box.width);
+            let index = 0;
+            xs.forEach((px, i) => { if (Math.abs(px - x) < Math.abs(xs[index] - x)) index = i; });
+            guide.setAttribute('x1', xs[index]); guide.setAttribute('x2', xs[index]);
+            dot.setAttribute('cx', xs[index]); dot.setAttribute('cy', ys[index]);
+            guide.setAttribute('visibility', 'visible'); dot.setAttribute('visibility', 'visible');
+            tip.textContent = label(index);
+            tip.classList.remove('hidden');
+            const scale = box.width / svg.viewBox.baseVal.width;
+            const left = Math.min(Math.max(xs[index] * scale + 14, 60), card.clientWidth - 60);
+            tip.style.left = `${left}px`;
+            tip.style.top = `${ys[index] * scale + 14}px`;
+        };
+        const hide = () => { tip.classList.add('hidden'); guide.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); };
+        svg.addEventListener('pointerdown', show);
+        svg.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' || e.buttons) show(e); });
+        svg.addEventListener('pointerleave', hide);
+        svg.addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') setTimeout(hide, 1500); });
+    }
+
+    // 📈 승률 추이: 경기 순서대로 시즌 누적 승률, 50% 기준선
+    function drawWinRate(rates) {
+        const card = document.getElementById('chart-winrate');
+        const { svg, width, height } = newSvg(card, 150);
+        const left = 30, right = 34, top = 8, bottom = 18;
+        const plotW = width - left - right, plotH = height - top - bottom;
+        const x = i => left + (rates.length === 1 ? plotW / 2 : i / (rates.length - 1) * plotW);
+        const y = v => top + (1 - v / 100) * plotH;
+        [0, 50, 100].forEach(v => {
+            svgEl('line', { x1: left, x2: left + plotW, y1: y(v), y2: y(v), stroke: v === 50 ? css('--chart-axis') : css('--chart-grid'), 'stroke-width': 1, 'stroke-dasharray': v === 50 ? '3 3' : '' }, svg);
+            svgEl('text', { x: left - 6, y: y(v) + 3, 'text-anchor': 'end' }, svg).textContent = `${v}%`;
+        });
+        const xs = rates.map((_, i) => x(i)), ys = rates.map(v => y(v));
+        svgEl('path', { d: xs.map((px, i) => `${i ? 'L' : 'M'}${px},${ys[i]}`).join(''), fill: 'none', stroke: css('--chart-me'), 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
+        const last = rates.length - 1;
+        svgEl('circle', { cx: xs[last], cy: ys[last], r: 4, fill: css('--chart-me'), stroke: css('--bg-card'), 'stroke-width': 2 }, svg);
+        svgEl('text', { x: xs[last] + 6, y: ys[last] + 3, class: 'value-label' }, svg).textContent = `${rates[last]}%`;
+        svgEl('text', { x: left, y: height - 4 }, svg).textContent = '1판';
+        svgEl('text', { x: left + plotW, y: height - 4, 'text-anchor': 'end' }, svg).textContent = `${rates.length}판`;
+        svg.setAttribute('aria-label', `누적 승률: 1판 ${rates[0]}%에서 ${rates.length}판 ${rates[last]}%`);
+        attachLineTip(card, svg, xs, ys, i => `${i + 1}번째 판 · ${rates[i]}%`);
+    }
+
+    // 🏆 순위 변화: 경기가 있었던 날마다 그날까지의 랭킹 순위 (1위가 위)
+    function drawRank(points) {
+        const card = document.getElementById('chart-rank');
+        if (!points.length) { card.innerHTML = '<p class="text-xs font-bold t-muted text-center py-6">순위 기록이 없습니다</p>'; return; }
+        const { svg, width, height } = newSvg(card, 140);
+        const maxRank = Math.max(...points.map(p => p.ranked), 2);
+        const left = 30, right = 34, top = 10, bottom = 18;
+        const plotW = width - left - right, plotH = height - top - bottom;
+        const x = i => left + (points.length === 1 ? plotW / 2 : i / (points.length - 1) * plotW);
+        const y = r => top + (r - 1) / (maxRank - 1) * plotH;
+        [1, maxRank].forEach(r => {
+            svgEl('line', { x1: left, x2: left + plotW, y1: y(r), y2: y(r), stroke: css('--chart-grid'), 'stroke-width': 1 }, svg);
+            svgEl('text', { x: left - 6, y: y(r) + 3, 'text-anchor': 'end' }, svg).textContent = `${r}위`;
+        });
+        const xs = points.map((_, i) => x(i)), ys = points.map(p => y(p.rank));
+        svgEl('path', { d: xs.map((px, i) => `${i ? 'L' : 'M'}${px},${ys[i]}`).join(''), fill: 'none', stroke: css('--chart-me'), 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
+        if (points.length <= 30) points.forEach((_, i) => svgEl('circle', { cx: xs[i], cy: ys[i], r: 2.5, fill: css('--chart-me') }, svg));
+        const last = points.length - 1;
+        svgEl('circle', { cx: xs[last], cy: ys[last], r: 4, fill: css('--chart-me'), stroke: css('--bg-card'), 'stroke-width': 2 }, svg);
+        svgEl('text', { x: xs[last] + 6, y: ys[last] + 3, class: 'value-label' }, svg).textContent = `${points[last].rank}위`;
+        const day = iso => { const [, m, d] = iso.split('-').map(Number); return `${m}/${d}`; };
+        svgEl('text', { x: left, y: height - 4 }, svg).textContent = day(points[0].date);
+        svgEl('text', { x: left + plotW, y: height - 4, 'text-anchor': 'end' }, svg).textContent = day(points[last].date);
+        svg.setAttribute('aria-label', `순위 변화: ${day(points[0].date)} ${points[0].rank}위에서 ${day(points[last].date)} ${points[last].rank}위`);
+        attachLineTip(card, svg, xs, ys, i => `${day(points[i].date)} · ${points[i].rank}위 / ${points[i].ranked}명`);
+    }
+
+    // 📊 점수 차 분포: 가운데 기준 왼쪽 = 패(큰 차이일수록 바깥), 오른쪽 = 승, 막대마다 판 수
+    function drawMargins(m) {
+        const card = document.getElementById('chart-margin');
+        const { svg, width, height } = newSvg(card, 150);
+        const top = 16, bottom = 18;
+        const plotH = height - top - bottom;
+        const cols = [
+            ...m.losses.map((n, i) => ({ n, label: m.labels[i], win: false })).reverse(),
+            ...m.wins.map((n, i) => ({ n, label: m.labels[i], win: true })),
+        ];
+        const max = Math.max(...cols.map(c => c.n), 1);
+        const slot = width / cols.length, barW = Math.min(slot - 6, 28);
+        const base = top + plotH;
+        svgEl('line', { x1: 0, x2: width, y1: base, y2: base, stroke: css('--chart-grid'), 'stroke-width': 1 }, svg);
+        svgEl('line', { x1: width / 2, x2: width / 2, y1: top - 6, y2: base + 2, stroke: css('--chart-axis'), 'stroke-width': 1, 'stroke-dasharray': '2 3' }, svg);
+        cols.forEach((c, i) => {
+            const cx = slot * i + slot / 2;
+            const h = c.n / max * plotH;
+            if (c.n) {
+                // 위쪽만 둥글게 (바닥은 기준선에 붙임)
+                const r = Math.min(4, barW / 2, h), x0 = cx - barW / 2, y0 = base - h;
+                svgEl('path', { d: `M${x0},${base} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + barW - r} Q${x0 + barW},${y0} ${x0 + barW},${y0 + r} V${base} Z`, fill: css(c.win ? '--chart-win' : '--chart-loss') }, svg);
+                svgEl('text', { x: cx, y: base - h - 4, 'text-anchor': 'middle', class: 'value-label' }, svg).textContent = c.n;
+            }
+            svgEl('text', { x: cx, y: height - 4, 'text-anchor': 'middle' }, svg).textContent = c.label;
+        });
+        const loss = m.losses.reduce((a, b) => a + b, 0), win = m.wins.reduce((a, b) => a + b, 0);
+        svg.setAttribute('aria-label', `점수 차 분포: 패 ${loss}판, 승 ${win}판`);
+        const caption = document.createElement('div');
+        caption.className = 'chart-caption';
+        caption.innerHTML = `<span>← 패 ${loss}판 (큰 차이일수록 바깥)</span><span>승 ${win}판 →</span>`;
+        card.appendChild(caption);
     }
 
     function section(title, body) {

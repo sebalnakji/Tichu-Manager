@@ -297,3 +297,88 @@ def test_highlight_prefers_bigger_net_over_higher_rate(client, db, player_ids, m
     assert best["player_id"] in (a, b)
     assert (best["wins"], best["losses"]) == (12, 6)
 
+
+
+# ── 📊 그래프 ──
+
+def test_rank_trend_matches_full_ranking_each_day(client, db, player_ids, monkeypatch):
+    """날마다의 순위 = 그날까지 경기로 랭킹을 처음부터 다시 계산한 순위"""
+    import random
+    from datetime import timedelta
+    from models.models import MatchStats, Player
+    from services.stats_service import StatsService
+
+    set_today(monkeypatch, date(2026, 11, 3))
+    rng = random.Random(3)
+    extra = [Player(name=f"rt-{i}", code=f"rt-code-{i}", profile_url="") for i in range(3)]
+    db.add_all(extra)
+    db.commit()
+    ids = player_ids + [p.id for p in extra]
+    start = date(2026, 3, 1)
+    for index in range(70):
+        four = rng.sample(ids, 4)
+        match = Match(play_date=start + timedelta(days=index // 3), team_a_ids=four[:2], team_b_ids=four[2:],
+                      status="FINISHED", winner_team=rng.choice("AB"), score_a=1000, score_b=600, rounds=[])
+        db.add(match)
+        db.flush()
+        for pid in rng.sample(four, rng.randint(0, 2)):
+            kind = rng.choice(["tichu", "grand"])
+            ok = rng.random() < 0.5
+            db.add(MatchStats(match_id=match.id, player_id=pid, round_number=1,
+                              is_tichu_try=kind == "tichu", is_tichu_succ=kind == "tichu" and ok,
+                              is_grand_try=kind == "grand", is_grand_succ=kind == "grand" and ok))
+    db.commit()
+
+    me = ids[0]
+    ranks = client.get(f"/api/stats/player/{me}/dashboard", params={"season": 1}).json()["charts"]["ranks"]
+    players = db.query(Player).all()
+    all_matches = StatsService._get_finished_matches(db, 1)
+    all_stats = StatsService._get_match_stats(db, 1)
+    match_dates = {m.id: m.play_date for m in all_matches}
+    assert len(ranks) > 10
+    for point in ranks:
+        day = date.fromisoformat(point["date"])
+        upto = [m for m in all_matches if m.play_date <= day]
+        upto_stats = [s for s in all_stats if match_dates[s.match_id] <= day]
+        board = StatsService.sort_leaderboard(StatsService.build_all_player_stats(players, upto, [], upto_stats))
+        assert point["rank"] == [s.player_id for s in board].index(me) + 1
+        assert point["ranked"] == len(board)
+    assert ranks[-1]["rank"] == ranking_rank(client, 1, me)  # 마지막 날 = 랭킹 화면 순위
+
+
+def test_win_rate_tichu_and_margin_charts(client, db, player_ids, monkeypatch):
+    from models.models import MatchStats
+    set_today(monkeypatch, date(2026, 11, 3))
+    p = player_ids
+    scores = [(1000, 900), (1200, 600), (700, 1000), (300, 1100)]  # 승 +100, 승 +600, 패 −300, 패 −800
+    ids = []
+    for i, (sa, sb) in enumerate(scores):
+        m = Match(play_date=date(2026, 5, 1 + i), team_a_ids=p[:2], team_b_ids=p[2:], status="FINISHED",
+                  winner_team="A" if sa > sb else "B", score_a=sa, score_b=sb, rounds=[])
+        db.add(m)
+        db.flush()
+        ids.append(m.id)
+    db.add_all([
+        MatchStats(match_id=ids[0], player_id=p[0], round_number=1, is_tichu_try=True, is_tichu_succ=True),
+        MatchStats(match_id=ids[1], player_id=p[0], round_number=1, is_tichu_try=True),
+        MatchStats(match_id=ids[2], player_id=p[2], round_number=1, is_grand_try=True, is_grand_succ=True),
+    ])
+    db.commit()
+
+    charts = client.get(f"/api/stats/player/{p[0]}/dashboard").json()["charts"]
+    assert charts["win_rate"] == [100.0, 100.0, 66.7, 50.0]  # 경기 순서대로 시즌 누적 승률
+    me, avg = charts["tichu"]["me"], charts["tichu"]["average"]
+    assert (me["tichu_per_game"], me["tichu_rate"], me["tichu_try"], me["tichu_success"]) == (0.5, 50.0, 2, 1)
+    assert (me["grand_per_game"], me["grand_rate"]) == (0.0, 0.0)
+    # 모임 평균: 4판 × 4명 = 16 사람-게임, 스몰 2번 시도 1번 성공, 라지 1번 시도 1번 성공
+    assert (avg["tichu_per_game"], avg["tichu_rate"], avg["grand_per_game"], avg["grand_rate"]) == (0.12, 50.0, 0.06, 100.0)
+    assert charts["margins"] == {
+        "labels": ["~200", "~400", "~600", "600+"],
+        "wins": [1, 0, 0, 1],
+        "losses": [0, 1, 0, 1],
+    }
+
+
+def test_charts_none_without_games(client, player_ids, monkeypatch):
+    set_today(monkeypatch, date(2026, 11, 3))
+    assert client.get(f"/api/stats/player/{player_ids[0]}/dashboard").json()["charts"] is None
