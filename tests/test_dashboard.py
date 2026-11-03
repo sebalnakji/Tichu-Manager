@@ -131,7 +131,7 @@ def test_dashboard_errors(client, player_ids, monkeypatch):
     assert client.get(f"/api/stats/player/{player_ids[0]}/dashboard", params={"season": 2}).status_code == 422
 
 
-def test_dashboard_uses_three_queries(db, player_ids, monkeypatch):
+def test_dashboard_uses_four_queries(db, player_ids, monkeypatch):
     set_today(monkeypatch, date(2028, 8, 1))  # 끝난 시즌 4개
     p = player_ids
     for day in (date(2026, 3, 1), date(2027, 2, 1), date(2027, 8, 1), date(2028, 2, 1)):
@@ -146,7 +146,7 @@ def test_dashboard_uses_three_queries(db, player_ids, monkeypatch):
         DashboardService.get_dashboard(db, p[0], None)
     finally:
         event.remove(db.bind, "before_cursor_execute", count_query)
-    assert count["n"] <= 3
+    assert count["n"] <= 4  # 사람·경기·티츄 + 시즌 기록용 내 경기 라운드
 
 
 def test_partner_records_best_friend_and_bad_blood(client, db, player_ids, monkeypatch):
@@ -187,3 +187,69 @@ def test_profile_record_hidden_without_current_season_games(client, db, player_i
     body = client.get(f"/api/stats/player/{player_ids[0]}/dashboard").json()
     assert body["current_rank"] is None and body["current_record"] is None
 
+
+
+# ── 🏅 시즌 기록 ──
+
+def _rounds(*specs):
+    """("base", a, b) 또는 ("events", [...]) 를 저장 형식 라운드로"""
+    rounds = []
+    for number, (a, b, events) in enumerate(specs, start=1):
+        rounds.append({"round": number, "team_a_base": a, "team_b_base": b, "events": events})
+    return rounds
+
+
+def _game(db, day, team_a, team_b, rounds):
+    from services.score_service import ScoreService
+    score_a, score_b = ScoreService.calculate_totals(rounds, team_a, team_b)
+    match = Match(play_date=day, team_a_ids=team_a, team_b_ids=team_b, status="FINISHED",
+                  winner_team="A" if score_a > score_b else "B", score_a=score_a, score_b=score_b, rounds=rounds)
+    db.add(match)
+    db.commit()
+    return match.id
+
+
+def test_season_records(client, db, player_ids, monkeypatch):
+    from models.models import MatchStats
+    set_today(monkeypatch, date(2026, 11, 3))
+    p = player_ids
+    a, b = p[:2], p[2:]
+    one_two_a = [{"type": "one_two", "team": "A"}]
+    shot = [{"type": "grand", "player_id": p[0], "success": True}, {"type": "one_two", "team": "A"}]
+
+    # g1 벼랑 끝 역전승: 0 : 800 (상대 800+, 800 뒤짐) → 원투 5번으로 1000 : 800
+    g1 = _game(db, date(2026, 5, 1), a, b, _rounds(*[(0, 100, [])] * 8, *[(0, 0, one_two_a)] * 5))
+    # g2 마지막 판 한 방: 850 : 950 (100 뒤짐) → 라지 성공 + 원투로 1250 : 950
+    g2 = _game(db, date(2026, 5, 2), a, b, _rounds(*[(50, 50, [])] * 17, (0, 100, []), (0, 0, shot)))
+    # g3 평범한 패배: 45 : 55 씩 → 855 : 1045 (상대 800+일 때 200 미만 차이 → 기회 아님)
+    g3 = _game(db, date(2026, 5, 3), a, b, _rounds(*[(45, 55, [])] * 19))
+    # g4 벼랑 끝에서 못 뒤집음: 0 : 1000
+    g4 = _game(db, date(2026, 5, 4), a, b, _rounds(*[(0, 100, [])] * 10))
+    db.add_all([
+        MatchStats(match_id=g2, player_id=p[0], round_number=19, is_grand_try=True, is_grand_succ=True),
+        MatchStats(match_id=g3, player_id=p[0], round_number=1, is_tichu_try=True),
+        MatchStats(match_id=g4, player_id=p[0], round_number=1, is_tichu_try=True),
+        MatchStats(match_id=g4, player_id=p[0], round_number=2, is_grand_try=True),
+        MatchStats(match_id=g4, player_id=p[2], round_number=3, is_tichu_try=True),  # 다른 사람은 안 셈
+    ])
+    db.commit()
+
+    mine = client.get(f"/api/stats/player/{p[0]}/dashboard").json()["records"]
+    assert (mine["longest_win_streak"], mine["longest_lose_streak"]) == (2, 2)
+    assert mine["biggest_win"] == {"match_id": g2, "margin": 300}
+    assert mine["biggest_loss"] == {"match_id": g4, "margin": -1000}
+    assert (mine["comeback_wins"], mine["comeback_win_chances"]) == (2, 3)   # g1, g2 성공 / g4 실패
+    assert (mine["comeback_losses"], mine["comeback_loss_chances"]) == (0, 0)
+    assert mine["average_margin"] == round((200 + 300 - 190 - 1000) / 4)
+    assert (mine["tichu_calls_per_game"], mine["grand_calls_per_game"]) == (0.5, 0.5)
+
+    # 상대 팀 쪽에서 보면 역전패: g1, g2는 뒤집힘 / g4는 지켜냄
+    theirs = client.get(f"/api/stats/player/{p[2]}/dashboard").json()["records"]
+    assert (theirs["comeback_losses"], theirs["comeback_loss_chances"]) == (2, 3)
+    assert (theirs["comeback_wins"], theirs["comeback_win_chances"]) == (0, 0)
+
+
+def test_season_records_none_without_games(client, db, player_ids, monkeypatch):
+    set_today(monkeypatch, date(2026, 11, 3))
+    body = client.get(f"/api/stats/player/{player_ids[0]}/dashboard").json()
+    assert body["games"] == 0 and body["records"] is None

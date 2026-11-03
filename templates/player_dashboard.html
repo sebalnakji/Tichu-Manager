@@ -19,6 +19,12 @@
         --badge-default-bg: rgba(0,0,0,0.03);
         --badge-default-border: rgba(0,0,0,0.08);
         --badge-default-text: #6B7280;
+        --badge-tichu-bg: rgba(234,179,8,0.08);
+        --badge-tichu-border: rgba(234,179,8,0.2);
+        --badge-tichu-text: #A16207;
+        --badge-grand-bg: rgba(147,51,234,0.08);
+        --badge-grand-border: rgba(147,51,234,0.2);
+        --badge-grand-text: #7E22CE;
         --badge-win-bg: rgba(16,185,129,0.08);
         --badge-win-border: rgba(16,185,129,0.25);
         --badge-win-text: #047857;
@@ -51,6 +57,12 @@
         --badge-default-bg: rgba(255,255,255,0.05);
         --badge-default-border: rgba(255,255,255,0.1);
         --badge-default-text: #9CA3AF;
+        --badge-tichu-bg: rgba(234,179,8,0.1);
+        --badge-tichu-border: rgba(234,179,8,0.2);
+        --badge-tichu-text: #FCD34D;
+        --badge-grand-bg: rgba(147,51,234,0.1);
+        --badge-grand-border: rgba(147,51,234,0.2);
+        --badge-grand-text: #C084FC;
         --badge-win-bg: rgba(16,185,129,0.12);
         --badge-win-border: rgba(16,185,129,0.25);
         --badge-win-text: #34D399;
@@ -120,6 +132,8 @@
         border: 1px solid;
     }
     .badge-default { background-color: var(--badge-default-bg); border-color: var(--badge-default-border); color: var(--badge-default-text); }
+    .badge-tichu { background-color: var(--badge-tichu-bg); border-color: var(--badge-tichu-border); color: var(--badge-tichu-text); }
+    .badge-grand { background-color: var(--badge-grand-bg); border-color: var(--badge-grand-border); color: var(--badge-grand-text); }
     .badge-win { background-color: var(--badge-win-bg); border-color: var(--badge-win-border); color: var(--badge-win-text); }
     .badge-lose { background-color: var(--badge-lose-bg); border-color: var(--badge-lose-border); color: var(--badge-lose-text); }
     .badge-medal-1 { background-color: var(--medal-1-bg); border-color: var(--medal-1-border); color: var(--medal-1-text); }
@@ -134,7 +148,8 @@
         box-shadow: 0 1px 4px rgba(0,0,0,0.04);
         padding: 0.375rem 0.75rem;
     }
-    .stat-highlights { display: flex; flex-direction: column; align-items: flex-start; gap: 0.375rem; padding: 0.5rem 0; }
+    /* 맛집·천적 / 베프·악연: 가로로 한 줄 (길면 다음 줄로) */
+    .stat-highlights { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; padding: 0.5rem 0; }
     .stat-highlights + .stat-row { border-top: 1px solid var(--divider); }
     /* 상대별 한 줄: 이름(최대 3글자) | 승패 배지 | 승률 */
     .stat-row {
@@ -147,6 +162,32 @@
     }
     .stat-row + .stat-row { border-top: 1px solid var(--divider); }
     .stat-rate { color: var(--accent); font-size: 0.875rem; font-weight: 900; }
+
+    /* 🏅 시즌 기록: 짝이 되는 기록을 좌우 2칸 타일로 */
+    .record-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1px;
+        background-color: var(--border);  /* 칸 구분선 (다크 모드에서도 보이게) */
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        overflow: hidden;
+    }
+    .record-cell {
+        background-color: var(--bg-card);
+        padding: 0.75rem;
+        min-height: 4rem;
+        display: flex; flex-direction: column; justify-content: center; gap: 0.25rem;
+        min-width: 0;
+    }
+    a.record-cell { transition: background-color 0.15s; -webkit-tap-highlight-color: transparent; }
+    a.record-cell:active { background-color: var(--bg-card-sub); }
+    .record-label { color: var(--text-muted); font-size: 0.6875rem; font-weight: 700; }
+    .record-value { color: var(--text-primary); font-size: 0.9375rem; font-weight: 900; line-height: 1.3; }
+    .record-good { color: var(--badge-win-text); }
+    .record-bad { color: var(--badge-lose-text); }
+    .record-none { color: var(--text-muted); }
 
     .empty-state { color: var(--text-muted); }
     .error-state { color: #F43F5E; font-size: 0.75rem; }
@@ -318,7 +359,41 @@
         }
         stats.innerHTML =
             renderPeople('⚔️ 상대 전적', data.opponents, '😋 맛집', '😈 천적') +
-            renderPeople('🤝 파트너 전적', data.partners, '💞 베프', '💔 악연');
+            renderPeople('🤝 파트너 전적', data.partners, '💞 베프', '💔 악연') +
+            renderRecords(data.records);
+    }
+
+    // ── 🏅 시즌 기록: 2칸 타일, 좋은 기록 초록 / 나쁜 기록 빨강, 게임을 가리키는 칸은 누르면 게임 기록 상세 ──
+    const num = n => Math.abs(n).toLocaleString('ko-KR');
+    const signed = n => (n > 0 ? '+' : n < 0 ? '−' : '') + num(n);
+    const pct = (part, whole) => Math.round(part / whole * 100);
+
+    function recordCell(label, value, tone, matchId) {
+        const content = `
+            <span class="record-label">${label}${matchId ? ' ›' : ''}</span>
+            <span class="record-value ${value === null ? 'record-none' : tone}">${value === null ? '-' : value}</span>`;
+        if (!matchId) return `<div class="record-cell">${content}</div>`;
+        // 게임 기록 상세의 ←가 이 화면으로 돌아오도록 (history.back)
+        return `<a class="record-cell" href="/history/${matchId}" onclick="sessionStorage.setItem('history_from_list', '1')">${content}</a>`;
+    }
+
+    function renderRecords(r) {
+        if (!r) return '';
+        const cells = [
+            recordCell('최장 연승', r.longest_win_streak ? `🔥 ${r.longest_win_streak}연승` : null, 'record-good'),
+            recordCell('최장 연패', r.longest_lose_streak ? `🧊 ${r.longest_lose_streak}연패` : null, 'record-bad'),
+            recordCell('최대 점수 차 승리', r.biggest_win ? `📈 ${signed(r.biggest_win.margin)}` : null, 'record-good', r.biggest_win?.match_id),
+            recordCell('최대 점수 차 패배', r.biggest_loss ? `📉 ${signed(r.biggest_loss.margin)}` : null, 'record-bad', r.biggest_loss?.match_id),
+            recordCell('역전승', r.comeback_win_chances
+                ? `🔄 ${r.comeback_wins} / ${r.comeback_win_chances}회 · ${pct(r.comeback_wins, r.comeback_win_chances)}%` : null, 'record-good'),
+            recordCell('역전패', r.comeback_loss_chances
+                ? `💣 ${r.comeback_losses} / ${r.comeback_loss_chances}회 · ${pct(r.comeback_losses, r.comeback_loss_chances)}%` : null, 'record-bad'),
+            recordCell('평균 점수 차이', `⚖️ ${signed(r.average_margin)}점`,
+                r.average_margin > 0 ? 'record-good' : r.average_margin < 0 ? 'record-bad' : ''),
+            recordCell('게임당 티츄 선언',
+                `<span class="flex flex-wrap gap-1"><span class="badge badge-tichu">스몰 ${r.tichu_calls_per_game}회</span><span class="badge badge-grand">라지 ${r.grand_calls_per_game}회</span></span>`, ''),
+        ];
+        return section('🏅 시즌 기록', `<div class="record-grid">${cells.join('')}</div>`);
     }
 
     function section(title, body) {

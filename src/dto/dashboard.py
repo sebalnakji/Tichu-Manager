@@ -43,6 +43,29 @@ class PeopleRecords(BaseModel):
     people: List[PersonRecord]  # 많이 만난 순 → 승률 높은 순
 
 
+class MatchMargin(BaseModel):
+    """최대 점수 차 게임 (누르면 게임 기록 상세)"""
+    match_id: int
+    margin: int  # 우리 팀 − 상대 팀 최종 점수
+
+
+class SeasonRecords(BaseModel):
+    """🏅 시즌 기록 (선택한 시즌)"""
+    longest_win_streak: int
+    longest_lose_streak: int
+    biggest_win: Optional[MatchMargin] = None
+    biggest_loss: Optional[MatchMargin] = None
+    # 역전승: 기회(상대 800+ & 200+ 뒤짐, 또는 마지막 라운드 라지+원투로 승리) 중 이긴 게임
+    comeback_wins: int
+    comeback_win_chances: int
+    # 역전패: 기회(우리 800+ & 200+ 앞섬, 또는 마지막 라운드 상대 라지+원투로 패배) 중 진 게임
+    comeback_losses: int
+    comeback_loss_chances: int
+    average_margin: int           # 이기면 +, 지면 − 의 평균 (반올림)
+    tichu_calls_per_game: float   # 직접 부른 스몰 티츄 ÷ 게임 수
+    grand_calls_per_game: float   # 직접 부른 라지 티츄 ÷ 게임 수
+
+
 class PlayerDashboardResponse(BaseModel):
     player: DashboardPlayer
     # 프로필 카드 (시즌 선택과 무관하게 고정)
@@ -56,3 +79,4 @@ class PlayerDashboardResponse(BaseModel):
     games: int
     opponents: PeopleRecords  # ⚔️ 상대 전적
     partners: PeopleRecords   # 🤝 파트너 전적 (같은 팀 승률)
+    records: Optional[SeasonRecords] = None  # 🏅 시즌 기록 (경기 없으면 None)
