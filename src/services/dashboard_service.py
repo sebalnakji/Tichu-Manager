@@ -17,6 +17,7 @@ from dto.dashboard import (
     PeopleRecords,
     PersonRecord,
     PlayerDashboardResponse,
+    SeasonRecord,
 )
 from dto.stats import PlayerStats
 from models.models import Match, MatchStats, Player
@@ -149,7 +150,14 @@ class DashboardService:
 
         # 프로필: 현재 시즌 순위 + 끝난 시즌 메달
         current = season_rules.current_season()
-        current_rank = DashboardService._rank_of(ranked_for(current), player_id)
+        current_ranked = ranked_for(current)
+        current_rank = DashboardService._rank_of(current_ranked, player_id)
+        current_stats = current_ranked[current_rank - 1] if current_rank else None
+        current_record = SeasonRecord(
+            wins=current_stats.wins,
+            losses=current_stats.losses,
+            win_rate=current_stats.win_rate,
+        ) if current_stats else None
         medals = []
         for number in range(1, current):
             rank = DashboardService._rank_of(ranked_for(number)[:MEDAL_RANKS], player_id)
@@ -170,6 +178,7 @@ class DashboardService:
             current_season=current,
             current_season_name=season_rules.season_name(current),
             current_rank=current_rank,
+            current_record=current_record,
             medals=medals,
             season=season,
             games=games,

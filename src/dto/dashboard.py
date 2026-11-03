@@ -20,6 +20,12 @@ class DashboardMedal(BaseModel):
     rank: int
 
 
+class SeasonRecord(BaseModel):
+    wins: int
+    losses: int
+    win_rate: float  # 랭킹과 같이 소수 한 자리
+
+
 class PersonRecord(BaseModel):
     """사람별 내 전적 (상대로 만났을 때 / 같은 팀이었을 때)"""
     player_id: int
@@ -43,6 +49,7 @@ class PlayerDashboardResponse(BaseModel):
     current_season: int
     current_season_name: str
     current_rank: Optional[int]  # 현재 시즌 경기가 없으면 None
+    current_record: Optional[SeasonRecord] = None  # 현재 시즌 승패·승률 (랭킹과 같은 숫자)
     medals: List[DashboardMedal]  # 오래된 시즌 → 최근 시즌
     # 아래 통계 (선택한 시즌, None = 전체 기간)
     season: Optional[int]

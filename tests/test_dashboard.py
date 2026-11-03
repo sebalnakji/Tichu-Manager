@@ -166,3 +166,24 @@ def test_partner_records_best_friend_and_bad_blood(client, db, player_ids, monke
     assert partners["worst"]["player_id"] == p[2]  # 💔 악연: 5판 이상, 50% 미만 중 최저
     assert all(r["player_id"] != p[0] for r in partners["people"])  # 나 자신은 없음
 
+
+def test_profile_record_matches_ranking(client, db, player_ids, monkeypatch):
+    set_today(monkeypatch, date(2027, 8, 1))  # 현재 시즌3
+    p = player_ids
+    add_matches(db, date(2027, 2, 1), p[:2], p[2:], ["A"] * 4)          # 시즌2 (프로필에 안 들어감)
+    add_matches(db, date(2027, 7, 2), p[:2], p[2:], ["A", "A", "B"])    # 시즌3: 2승 1패
+
+    rows = client.get("/api/stats/leaderboard", params={"season": 3}).json()
+    ranking = next(r["stats"] for r in rows if r["stats"]["player_id"] == p[0])
+    body = client.get(f"/api/stats/player/{p[0]}/dashboard", params={"season": 2}).json()
+
+    assert body["current_record"] == {"wins": 2, "losses": 1, "win_rate": 66.7}
+    assert body["current_record"] == {k: ranking[k] for k in ("wins", "losses", "win_rate")}
+
+
+def test_profile_record_hidden_without_current_season_games(client, db, player_ids, monkeypatch):
+    set_today(monkeypatch, date(2027, 8, 1))
+    add_matches(db, date(2027, 2, 1), player_ids[:2], player_ids[2:], ["A"])  # 시즌2만
+    body = client.get(f"/api/stats/player/{player_ids[0]}/dashboard").json()
+    assert body["current_rank"] is None and body["current_record"] is None
+

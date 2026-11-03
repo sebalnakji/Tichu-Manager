@@ -71,6 +71,8 @@
     .page-bg { background-color: var(--bg-main); }
     .t-primary { color: var(--text-primary); }
     .t-muted { color: var(--text-muted); }
+    .t-secondary { color: var(--text-secondary); }
+    .record-rate { color: var(--accent); font-weight: 900; }
 
     .lb-back-btn {
         background-color: var(--bg-card);
@@ -284,6 +286,11 @@
         const rank = data.current_rank
             ? `<span class="win-rate-text shrink-0">${esc(data.current_season_name)} ${data.current_rank}위</span>`
             : `<span class="text-sm font-bold t-muted shrink-0">${esc(data.current_season_name)} 기록 없음</span>`;
+        // 현재 시즌 승패 · 승률 (랭킹과 같은 숫자), 경기가 없으면 숨김
+        const r = data.current_record;
+        const record = r
+            ? `<p class="text-sm font-bold mt-0.5"><span class="t-secondary">${r.wins}승 ${r.losses}패</span> <span class="t-muted">·</span> <span class="record-rate">${r.win_rate}%</span></p>`
+            : '';
         const medals = data.medals.length
             ? data.medals.map(m => `<span class="badge badge-medal-${m.rank}">${esc(m.season_name)} ${MEDALS[m.rank]}</span>`).join('')
             : '<span class="text-xs font-bold t-muted">아직 획득한 메달이 없습니다</span>';
@@ -291,11 +298,12 @@
             <div class="rank-card">
                 <img src="${esc(data.player.profile_url)}" alt="" class="w-14 h-14 rounded-full object-cover shrink-0" style="border: 1px solid var(--border);">
                 <div class="flex-1 min-w-0">
-                    <div class="flex justify-between items-center mb-2">
+                    <div class="flex justify-between items-center">
                         <span class="player-name-text truncate pr-2">${esc(data.player.name)}</span>
                         ${rank}
                     </div>
-                    <div class="flex flex-wrap gap-1.5">${medals}</div>
+                    ${record}
+                    <div class="flex flex-wrap gap-1.5 mt-2">${medals}</div>
                 </div>
             </div>`;
     }
