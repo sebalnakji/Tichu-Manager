@@ -455,6 +455,42 @@ class StatsService:
         )
 
     @staticmethod
+    def get_team_records(db: Session, teams: List[List[int]]) -> List[dict]:
+        """2인 팀들의 전체 기간 승패를 한 번의 조회로 계산한다 (매치업 창용).
+
+        완료 경기의 팀 구성·승자 컬럼만 읽고(라운드 JSON은 읽지 않음),
+        여러 팀을 같은 결과로 함께 센다.
+
+        Returns:
+            팀 순서대로 {"total_games", "wins", "win_rate"}
+        """
+        rows = (
+            db.query(Match.team_a_ids, Match.team_b_ids, Match.winner_team)
+            .filter(Match.status == "FINISHED")
+            .all()
+        )
+        records = []
+        for team in teams:
+            members = set(team)
+            games = wins = 0
+            for team_a_ids, team_b_ids, winner_team in rows:
+                if members <= set(team_a_ids):
+                    side = "A"
+                elif members <= set(team_b_ids):
+                    side = "B"
+                else:
+                    continue
+                games += 1
+                if winner_team == side:
+                    wins += 1
+            records.append({
+                "total_games": games,
+                "wins": wins,
+                "win_rate": round(wins / games * 100, 1) if games else 0.0,
+            })
+        return records
+
+    @staticmethod
     def get_team_leaderboard(
         db: Session,
         year: Optional[int] = None

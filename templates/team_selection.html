@@ -486,13 +486,15 @@
                 team_a_stats: { total_games: 0, wins: 0, win_rate: 0 },
                 team_b_stats: { total_games: 0, wins: 0, win_rate: 0 }
             };
-            // 팀 전적 조회
+            // 고른 팀 그대로의 전적 조회 (팀을 섞지 않음)
             try {
-                const res = await fetch('/api/matches/assign-teams', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(selectedPlayers) });
-                const data = await res.json();
-                // 전적 정보만 활용, 팀 구성은 수동 유지
-                teamAssignment.team_a_stats = data.team_a_stats || teamAssignment.team_a_stats;
-                teamAssignment.team_b_stats = data.team_b_stats || teamAssignment.team_b_stats;
+                const query = `team_a=${teamAssignment.team_a.join(',')}&team_b=${teamAssignment.team_b.join(',')}`;
+                const res = await fetch(`/api/matches/team-stats?${query}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    teamAssignment.team_a_stats = data.team_a_stats;
+                    teamAssignment.team_b_stats = data.team_b_stats;
+                }
             } catch (e) {}
             displayTeamResult(teamAssignment);
         } else {

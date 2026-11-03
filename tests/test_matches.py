@@ -632,3 +632,88 @@ def test_match_detail_team_record_counts_this_season_only(db, player_ids):
     body = _record_edit_client(db).get(f"/api/matches/{match_id}").json()
     assert body["team_a_team_wins"] == 2
     assert body["team_b_team_wins"] == 1
+
+
+def _count_queries(db):
+    counter = {"n": 0}
+
+    def count_query(*_args):
+        counter["n"] += 1
+
+    event.listen(db.bind, "before_cursor_execute", count_query)
+    return counter, lambda: event.remove(db.bind, "before_cursor_execute", count_query)
+
+
+def _setup_team_matches(db, p):
+    # (p0,p1) vs (p2,p3): A 2승 / (p0,p2) vs (p1,p3): B 1승 / 진행 중 경기는 제외
+    for _ in range(2):
+        create_match(db, p, status="FINISHED")
+    mixed = Match(
+        play_date=date.today(), team_a_ids=[p[0], p[2]], team_b_ids=[p[1], p[3]],
+        status="FINISHED", winner_team="B", rounds=[],
+    )
+    db.add(mixed)
+    db.commit()
+    create_match(db, p)
+
+
+def test_team_stats_returns_requested_teams_as_given(db, player_ids):
+    p = player_ids
+    _setup_team_matches(db, p)
+    client = _record_edit_client(db)
+
+    body = client.get(f"/api/matches/team-stats?team_a={p[2]},{p[3]}&team_b={p[0]},{p[1]}").json()
+    assert body == {
+        "team_a_stats": {"total_games": 2, "wins": 0, "win_rate": 0.0},
+        "team_b_stats": {"total_games": 2, "wins": 2, "win_rate": 100.0},
+    }
+
+    body = client.get(f"/api/matches/team-stats?team_a={p[0]},{p[2]}&team_b={p[3]},{p[1]}").json()
+    assert body["team_a_stats"] == {"total_games": 1, "wins": 0, "win_rate": 0.0}
+    assert body["team_b_stats"] == {"total_games": 1, "wins": 1, "win_rate": 100.0}
+
+    counter, stop = _count_queries(db)
+    try:
+        client.get(f"/api/matches/team-stats?team_a={p[0]},{p[1]}&team_b={p[2]},{p[3]}")
+    finally:
+        stop()
+    assert counter["n"] <= 2
+
+
+@pytest.mark.parametrize(
+    "query, code",
+    [
+        ("team_a=1&team_b=3,4", 422),
+        ("team_a=1,2,3&team_b=4,5", 422),
+        ("team_a=a,b&team_b=3,4", 422),
+        ("team_a=1,2&team_b=2,3", 422),
+        ("team_a=1,2", 422),
+        ("team_a=1,2&team_b=3,999", 404),
+    ],
+)
+def test_team_stats_rejects_invalid_teams(db, player_ids, query, code):
+    assert player_ids == [1, 2, 3, 4]
+    response = _record_edit_client(db).get(f"/api/matches/team-stats?{query}")
+    assert response.status_code == code
+
+
+def test_assign_teams_keeps_response_shape_with_matching_records(db, player_ids):
+    p = player_ids
+    _setup_team_matches(db, p)
+    client = _record_edit_client(db)
+
+    counter, stop = _count_queries(db)
+    try:
+        body = client.post("/api/matches/assign-teams", json=p).json()
+    finally:
+        stop()
+
+    assert sorted(body["team_a"] + body["team_b"]) == sorted(p)
+    expected = client.get(
+        "/api/matches/team-stats?team_a={}&team_b={}".format(
+            ",".join(map(str, body["team_a"])), ",".join(map(str, body["team_b"]))
+        )
+    ).json()
+    assert body["team_a_stats"] == expected["team_a_stats"]
+    assert body["team_b_stats"] == expected["team_b_stats"]
+    assert counter["n"] <= 2

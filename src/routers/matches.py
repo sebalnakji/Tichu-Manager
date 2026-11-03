@@ -82,40 +82,64 @@ def assign_teams(player_ids: List[int], db: Session = Depends(get_db)):
     # 팀 배정
     assignment = TeamService.assign_teams(player_ids, db)
 
-    # 팀 A 승률 계산
-    team_a_stats = StatsService.get_team_stats(
-        assignment.team_a[0],
-        assignment.team_a[1],
-        db,
-        year=None
-    )
-
-    # 팀 B 승률 계산
-    team_b_stats = StatsService.get_team_stats(
-        assignment.team_b[0],
-        assignment.team_b[1],
-        db,
-        year=None
-    )
-
-    # 응답에 승률 정보 추가
+    # 응답에 팀별 전체 기간 전적 추가
     result = {
         "team_a": assignment.team_a,
         "team_b": assignment.team_b,
-        "team_a_stats": {
-            "total_games": team_a_stats.total_games if team_a_stats else 0,
-            "wins": team_a_stats.wins if team_a_stats else 0,
-            "win_rate": team_a_stats.win_rate if team_a_stats else 0.0
-        },
-        "team_b_stats": {
-            "total_games": team_b_stats.total_games if team_b_stats else 0,
-            "wins": team_b_stats.wins if team_b_stats else 0,
-            "win_rate": team_b_stats.win_rate if team_b_stats else 0.0
-        }
+        **_team_records(assignment.team_a, assignment.team_b, db),
     }
 
     logger.info(f"팀 배정: Team A {assignment.team_a} vs Team B {assignment.team_b}")
     return result
+
+
+def _team_records(team_a: List[int], team_b: List[int], db: Session) -> dict:
+    """매치업 창용 팀별 전체 기간 전적 {team_a_stats, team_b_stats}"""
+    team_a_stats, team_b_stats = StatsService.get_team_records(db, [team_a, team_b])
+    return {"team_a_stats": team_a_stats, "team_b_stats": team_b_stats}
+
+
+def _parse_team_ids(raw: str, name: str) -> List[int]:
+    """'3,7' 형식의 2인 팀"""
+    try:
+        ids = [int(value) for value in raw.split(",") if value.strip()]
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{name}는 숫자 2개를 쉼표로 구분해야 합니다.",
+        ) from exc
+    if len(ids) != 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{name}는 2명이어야 합니다.",
+        )
+    return ids
+
+
+@router.get("/team-stats")
+def get_team_matchup_stats(
+    team_a: str = Query(..., description="팀 A 플레이어 ID 2개 (예: 3,7)"),
+    team_b: str = Query(..., description="팀 B 플레이어 ID 2개"),
+    db: Session = Depends(get_db),
+):
+    """
+    정해진 팀 그대로 전체 기간 전적 조회 (수동 배정 매치업 창용, 팀을 섞지 않음)
+    """
+    team_a_ids = _parse_team_ids(team_a, "team_a")
+    team_b_ids = _parse_team_ids(team_b, "team_b")
+    all_ids = team_a_ids + team_b_ids
+    if len(set(all_ids)) != 4:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="서로 다른 4명이어야 합니다.",
+        )
+    found = db.query(Player.id).filter(Player.id.in_(all_ids)).count()
+    if found != 4:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="존재하지 않는 플레이어가 있습니다.",
+        )
+    return _team_records(team_a_ids, team_b_ids, db)
 
 
 @router.post("/", response_model=MatchResponse)
