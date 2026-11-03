@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from core import season as season_rules
 from core.database import get_db
 from dto.stats import PlayerStats, LeaderboardResponse, TeamLeaderboardResponse
+from dto.dashboard import PlayerDashboardResponse
+from services.dashboard_service import DashboardService
 from services.stats_service import StatsService
 from routers.season_param import season_query
 
@@ -31,6 +33,24 @@ def get_player_stats(
             detail=f"플레이어 ID {player_id}를 찾을 수 없습니다."
         )
     return stats
+
+
+@router.get("/player/{player_id}/dashboard", response_model=PlayerDashboardResponse)
+def get_player_dashboard(
+    player_id: int,
+    season: Optional[int] = Depends(season_query),
+    db: Session = Depends(get_db)
+):
+    """
+    개인 분석: 프로필(현재 시즌 순위, 획득 메달)은 고정, 상대 전적은 선택한 시즌(생략 = 전체 기간)
+    """
+    dashboard = DashboardService.get_dashboard(db, player_id, season)
+    if not dashboard:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"플레이어 ID {player_id}를 찾을 수 없습니다."
+        )
+    return dashboard
 
 
 @router.get("/players/current-season", response_model=List[PlayerStats])

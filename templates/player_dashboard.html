@@ -1,0 +1,348 @@
+{% extends "base.html" %}
+
+{% block title %}개인 분석 - Tichu Manager{% endblock %}
+
+{% block content %}
+<style>
+    /* 색상·헤더·카드·배지는 랭킹(leaderboard.html)과 동일, 기록 줄은 게임 기록 하루 기록표와 동일 */
+    :root {
+        --bg-main: #F4F4F8;
+        --bg-card: #FFFFFF;
+        --bg-card-sub: #F0F0F6;
+        --border: rgba(0, 0, 0, 0.07);
+        --text-primary: #0F0F1A;
+        --text-secondary: #6B7280;
+        --text-muted: #9CA3AF;
+        --accent: #4F46E5;
+        --divider: rgba(0,0,0,0.06);
+
+        --badge-default-bg: rgba(0,0,0,0.03);
+        --badge-default-border: rgba(0,0,0,0.08);
+        --badge-default-text: #6B7280;
+        --badge-win-bg: rgba(16,185,129,0.08);
+        --badge-win-border: rgba(16,185,129,0.25);
+        --badge-win-text: #047857;
+        --badge-lose-bg: rgba(239,68,68,0.08);
+        --badge-lose-border: rgba(239,68,68,0.25);
+        --badge-lose-text: #B91C1C;
+        /* 메달 배지: 금·은·동 */
+        --medal-1-bg: rgba(234,179,8,0.10);
+        --medal-1-border: rgba(234,179,8,0.30);
+        --medal-1-text: #A16207;
+        --medal-2-bg: rgba(148,163,184,0.12);
+        --medal-2-border: rgba(148,163,184,0.40);
+        --medal-2-text: #475569;
+        --medal-3-bg: rgba(194,120,62,0.10);
+        --medal-3-border: rgba(194,120,62,0.30);
+        --medal-3-text: #9A5B2A;
+    }
+
+    [data-theme="dark"] {
+        --bg-main: #0F0F1A;
+        --bg-card: #1A1A2E;
+        --bg-card-sub: #0F0F1A;
+        --border: rgba(255, 255, 255, 0.08);
+        --text-primary: #FFFFFF;
+        --text-secondary: #9CA3AF;
+        --text-muted: #6B7280;
+        --accent: #6366F1;
+        --divider: rgba(255,255,255,0.05);
+
+        --badge-default-bg: rgba(255,255,255,0.05);
+        --badge-default-border: rgba(255,255,255,0.1);
+        --badge-default-text: #9CA3AF;
+        --badge-win-bg: rgba(16,185,129,0.12);
+        --badge-win-border: rgba(16,185,129,0.25);
+        --badge-win-text: #34D399;
+        --badge-lose-bg: rgba(239,68,68,0.12);
+        --badge-lose-border: rgba(239,68,68,0.25);
+        --badge-lose-text: #F87171;
+        --medal-1-bg: rgba(234,179,8,0.12);
+        --medal-1-border: rgba(234,179,8,0.30);
+        --medal-1-text: #FCD34D;
+        --medal-2-bg: rgba(148,163,184,0.12);
+        --medal-2-border: rgba(148,163,184,0.30);
+        --medal-2-text: #CBD5E1;
+        --medal-3-bg: rgba(194,120,62,0.14);
+        --medal-3-border: rgba(194,120,62,0.35);
+        --medal-3-text: #E3A574;
+    }
+
+    .page-bg { background-color: var(--bg-main); }
+    .t-primary { color: var(--text-primary); }
+    .t-muted { color: var(--text-muted); }
+
+    .lb-back-btn {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        color: var(--text-secondary);
+        border-radius: 9999px;
+        width: 2.25rem; height: 2.25rem;
+        display: flex; align-items: center; justify-content: center;
+        transition: all 0.15s;
+    }
+    .lb-back-btn:hover { color: var(--text-primary); }
+    .lb-title { color: var(--text-primary); }
+    .year-select {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        color: var(--text-primary);
+        font-size: 0.75rem;
+        font-weight: 700;
+        border-radius: 0.75rem;
+        padding: 0.5rem;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        outline: none;
+    }
+
+    .rank-card {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        padding: 1rem;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    .player-name-text { color: var(--text-primary); font-size: 1.125rem; font-weight: 900; }
+    .win-rate-text { color: var(--accent); font-size: 1rem; font-weight: 900; }
+
+    .badge {
+        display: inline-flex; align-items: center;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.375rem;
+        font-size: 0.625rem;
+        font-weight: 700;
+        border: 1px solid;
+    }
+    .badge-default { background-color: var(--badge-default-bg); border-color: var(--badge-default-border); color: var(--badge-default-text); }
+    .badge-win { background-color: var(--badge-win-bg); border-color: var(--badge-win-border); color: var(--badge-win-text); }
+    .badge-lose { background-color: var(--badge-lose-bg); border-color: var(--badge-lose-border); color: var(--badge-lose-text); }
+    .badge-medal-1 { background-color: var(--medal-1-bg); border-color: var(--medal-1-border); color: var(--medal-1-text); }
+    .badge-medal-2 { background-color: var(--medal-2-bg); border-color: var(--medal-2-border); color: var(--medal-2-text); }
+    .badge-medal-3 { background-color: var(--medal-3-bg); border-color: var(--medal-3-border); color: var(--medal-3-text); }
+
+    /* 통계 카드: 게임 기록 하루 기록표와 같은 카드·줄 */
+    .stat-table {
+        background-color: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        padding: 0.375rem 0.75rem;
+    }
+    .stat-highlights { display: flex; flex-direction: column; align-items: flex-start; gap: 0.375rem; padding: 0.5rem 0; }
+    .stat-highlights + .stat-row { border-top: 1px solid var(--divider); }
+    /* 상대별 한 줄: 이름(최대 3글자) | 승패 배지 | 승률 */
+    .stat-row {
+        display: grid;
+        grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+        column-gap: 0.5rem;
+        align-items: center;
+        min-height: 2.75rem;
+        padding: 0.375rem 0;
+    }
+    .stat-row + .stat-row { border-top: 1px solid var(--divider); }
+    .stat-rate { color: var(--accent); font-size: 0.875rem; font-weight: 900; }
+
+    .empty-state { color: var(--text-muted); }
+    .error-state { color: #F43F5E; font-size: 0.75rem; }
+    .spinner {
+        border: 4px solid var(--bg-card-sub);
+        border-top-color: var(--accent);
+        border-radius: 9999px;
+        width: 2rem; height: 2rem;
+        animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+<div class="page-bg fixed inset-0 overflow-y-auto">
+    <div class="max-w-md mx-auto px-4 pb-20">
+        <!-- 헤더: 랭킹 화면과 동일 -->
+        <div class="relative flex items-center justify-between pt-6 pb-4">
+            <button type="button" onclick="goBack()" class="lb-back-btn group-active:scale-95 transition-transform z-10" aria-label="뒤로">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+                </svg>
+            </button>
+
+            <h1 class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <span class="text-xl font-black tracking-tight flex items-center gap-1 lb-title">
+                    <span class="text-2xl">📈</span>
+                    <span>개인 분석</span>
+                </span>
+            </h1>
+
+            <div class="z-10">
+                <select id="year-filter" class="year-select" aria-label="시즌"></select>
+            </div>
+        </div>
+
+        <!-- 프로필 카드: 시즌 선택과 무관하게 고정 -->
+        <div id="profile" class="mb-6"></div>
+
+        <!-- 시즌별 통계 -->
+        <div class="relative min-h-[200px]">
+            <div id="loading-spinner" class="hidden absolute inset-0 z-20 flex items-start pt-16 justify-center">
+                <div class="spinner"></div>
+            </div>
+            <div id="stats" class="space-y-6"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const PLAYER_ID = {{ player_id | tojson }};
+    const FROM_RANKING_KEY = 'dashboard_from_ranking'; // ←가 랭킹으로 history.back() 할지
+    const MEDALS = { 1: '🥇', 2: '🥈', 3: '🥉' };
+
+    // 시즌: 주소의 ?season=N|all, 없으면 현재 시즌 ('' = 전체 기간)
+    const CURRENT_SEASON = String(window.TICHU_SEASONS.current);
+    const query = new URLSearchParams(location.search);
+    let selectedSeason = query.has('season') ? (query.get('season') === 'all' ? '' : query.get('season')) : CURRENT_SEASON;
+    let loadToken = 0;
+
+    function esc(text) {
+        return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function goBack() {
+        if (sessionStorage.getItem(FROM_RANKING_KEY)) history.back();
+        else location.href = '/leaderboard';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initSeasonFilter();
+        load();
+    });
+
+    function initSeasonFilter() {
+        const seasonFilter = document.getElementById('year-filter');
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = '전체 기간';
+        seasonFilter.appendChild(allOption);
+
+        // 최신 시즌이 위 (랭킹과 같은 목록)
+        window.TICHU_SEASONS.list.forEach(season => {
+            const option = document.createElement('option');
+            option.value = season.number;
+            option.textContent = season.name;
+            seasonFilter.appendChild(option);
+        });
+        // 없는 시즌 번호가 주소에 있으면 현재 시즌으로 (주소도 맞춤)
+        if (![...seasonFilter.options].some(o => o.value === selectedSeason)) {
+            selectedSeason = CURRENT_SEASON;
+            syncUrl();
+        }
+        seasonFilter.value = selectedSeason;
+
+        seasonFilter.addEventListener('change', (e) => {
+            selectedSeason = e.target.value;
+            syncUrl();
+            load();
+        });
+    }
+
+    function syncUrl() {
+        const search = selectedSeason === CURRENT_SEASON ? '' : `?season=${selectedSeason || 'all'}`;
+        history.replaceState(null, '', `/players/${PLAYER_ID}${search}`);
+    }
+
+    async function load() {
+        const token = ++loadToken;
+        const spinner = document.getElementById('loading-spinner');
+        spinner.classList.remove('hidden');
+        try {
+            const params = selectedSeason ? `?season=${selectedSeason}` : '';
+            const response = await fetch(`/api/stats/player/${PLAYER_ID}/dashboard${params}`);
+            if (token !== loadToken) return; // 그 사이 시즌이 바뀜
+            if (response.status === 404) {
+                document.getElementById('profile').innerHTML = '';
+                document.getElementById('stats').innerHTML = '<div class="text-center py-20 empty-state"><p class="text-4xl mb-2">👤</p><p class="text-sm">플레이어를 찾을 수 없습니다.</p></div>';
+                return;
+            }
+            if (!response.ok) throw new Error();
+            const data = await response.json();
+            if (token !== loadToken) return;
+            renderProfile(data);
+            renderStats(data);
+        } catch (e) {
+            if (token !== loadToken) return;
+            document.getElementById('stats').innerHTML = '<div class="text-center py-10 error-state">데이터 로드 실패</div>';
+        } finally {
+            if (token === loadToken) spinner.classList.add('hidden');
+        }
+    }
+
+    // ── 프로필 카드: 이름 + 현재 시즌 순위 / 획득 메달 ──
+    function renderProfile(data) {
+        const rank = data.current_rank
+            ? `<span class="win-rate-text shrink-0">${esc(data.current_season_name)} ${data.current_rank}위</span>`
+            : `<span class="text-sm font-bold t-muted shrink-0">${esc(data.current_season_name)} 기록 없음</span>`;
+        const medals = data.medals.length
+            ? data.medals.map(m => `<span class="badge badge-medal-${m.rank}">${esc(m.season_name)} ${MEDALS[m.rank]}</span>`).join('')
+            : '<span class="text-xs font-bold t-muted">아직 획득한 메달이 없습니다</span>';
+        document.getElementById('profile').innerHTML = `
+            <div class="rank-card">
+                <img src="${esc(data.player.profile_url)}" alt="" class="w-14 h-14 rounded-full object-cover shrink-0" style="border: 1px solid var(--border);">
+                <div class="flex-1 min-w-0">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="player-name-text truncate pr-2">${esc(data.player.name)}</span>
+                        ${rank}
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">${medals}</div>
+                </div>
+            </div>`;
+    }
+
+    // ── 시즌별 통계 ──
+    function renderStats(data) {
+        const stats = document.getElementById('stats');
+        if (data.games === 0) {
+            const text = selectedSeason ? '이 시즌에는 기록이 없습니다.' : '기록이 없습니다.';
+            stats.innerHTML = `<div class="text-center py-20 empty-state"><p class="text-4xl mb-2">📈</p><p class="text-sm">${text}</p></div>`;
+            return;
+        }
+        stats.innerHTML =
+            renderPeople('⚔️ 상대 전적', data.opponents, '😋 맛집', '😈 천적') +
+            renderPeople('🤝 파트너 전적', data.partners, '💞 베프', '💔 악연');
+    }
+
+    function section(title, body) {
+        return `
+            <section>
+                <div class="flex items-center justify-between px-1 mb-2">
+                    <h3 class="text-sm font-black t-primary">${title}</h3>
+                </div>
+                ${body}
+            </section>`;
+    }
+
+    // 사람별 전적 카드: 위에 좋은 쪽(초록) → 나쁜 쪽(빨강) 하이라이트, 아래 사람별 줄
+    // ⚔️ 상대 전적: 😋 맛집 / 😈 천적, 🤝 파트너 전적: 💞 베프 / 💔 악연
+    function renderPeople(title, records, bestLabel, worstLabel) {
+        if (!records.people.length) return '';
+        const highlight = (record, cls, label) => record
+            ? `<span class="badge ${cls}">${label} ${esc(record.name)} ${record.wins}승 ${record.losses}패</span>`
+            : '';
+        const highlights = (records.best || records.worst)
+            ? `<div class="stat-highlights">
+                   ${highlight(records.best, 'badge-win', bestLabel)}
+                   ${highlight(records.worst, 'badge-lose', worstLabel)}
+               </div>`
+            : '';
+        const rows = records.people.map(r => `
+            <div class="stat-row">
+                <p class="text-sm font-black t-primary truncate">${esc(r.name)}</p>
+                <div><span class="badge badge-default">${r.wins}승 ${r.losses}패</span></div>
+                <span class="stat-rate">${r.win_rate}%</span>
+            </div>`).join('');
+        return section(title, `<div class="stat-table">${highlights}${rows}</div>`);
+    }
+</script>
+{% endblock %}

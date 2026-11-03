@@ -164,6 +164,17 @@ async def history_detail(request: Request, match_id: int):
     )
 
 
+@app.get("/players/{player_id}", response_class=HTMLResponse)
+async def player_dashboard(request: Request, player_id: int):
+    """
+    개인 분석 화면 - 랭킹 개인 카드에서 진입
+    """
+    return templates.TemplateResponse(
+        "player_dashboard.html",
+        {"request": request, "player_id": player_id, "title": "개인 분석"}
+    )
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """

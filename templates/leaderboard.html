@@ -139,6 +139,9 @@
         align-items: center;
         gap: 1rem;
     }
+    /* 개인 카드 → 개인 분석 */
+    a.rank-card { cursor: pointer; transition: transform 0.15s; -webkit-tap-highlight-color: transparent; }
+    a.rank-card:active { transform: scale(0.98); }
     .rank-num { color: var(--text-muted); font-weight: 700; font-family: monospace; font-size: 0.75rem; width: 2rem; text-align: center; }
     .player-name-text { color: var(--text-primary); font-size: 1rem; font-weight: 900; }
     .team-name-text { color: var(--text-primary); font-size: 0.875rem; font-weight: 900; }
@@ -219,18 +222,33 @@
 
 {% block extra_scripts %}
 <script>
-    let currentTab = 'individual';
+    // ── 화면 상태 (주소에 기억: ?season=1&tab=team, 전체 기간은 season=all) ──
+    const CURRENT_SEASON = String(window.TICHU_SEASONS.current);
+    const FROM_RANKING_KEY = 'dashboard_from_ranking'; // 개인 분석 ←가 랭킹으로 history.back() 할지
+    const query = new URLSearchParams(location.search);
+    let currentTab = query.get('tab') === 'team' ? 'team' : 'individual';
     // 선택한 시즌 번호 ('' = 전체 기간), 기본은 현재 시즌
-    let currentSeason = String(window.TICHU_SEASONS.current);
+    let currentSeason = query.has('season') ? (query.get('season') === 'all' ? '' : query.get('season')) : CURRENT_SEASON;
 
     document.addEventListener('DOMContentLoaded', () => {
+        sessionStorage.removeItem(FROM_RANKING_KEY);
         initSeasonFilter();
+        renderTab();
         loadLeaderboard();
         document.getElementById('year-filter').addEventListener('change', (e) => {
             currentSeason = e.target.value;
+            syncUrl();
             loadLeaderboard();
         });
     });
+
+    function syncUrl() {
+        const params = new URLSearchParams();
+        if (currentSeason !== CURRENT_SEASON) params.set('season', currentSeason || 'all');
+        if (currentTab === 'team') params.set('tab', 'team');
+        const search = params.toString() ? `?${params}` : '';
+        if (search !== location.search) history.replaceState(null, '', `/leaderboard${search}`);
+    }
 
     function initSeasonFilter() {
         const seasonFilter = document.getElementById('year-filter');
@@ -247,11 +265,21 @@
             option.textContent = season.name;
             seasonFilter.appendChild(option);
         });
+        // 없는 시즌 번호가 주소에 있으면 현재 시즌으로
+        if (![...seasonFilter.options].some(o => o.value === currentSeason)) currentSeason = CURRENT_SEASON;
         seasonFilter.value = currentSeason;
+        syncUrl();
     }
 
     function switchTab(tab) {
         currentTab = tab;
+        renderTab();
+        syncUrl();
+        loadLeaderboard();
+    }
+
+    function renderTab() {
+        const tab = currentTab;
         const indTab = document.getElementById('tab-individual');
         const teamTab = document.getElementById('tab-team');
 
@@ -266,7 +294,6 @@
             document.getElementById('team-list').classList.remove('hidden');
             document.getElementById('individual-list').classList.add('hidden');
         }
-        loadLeaderboard();
     }
 
     async function loadLeaderboard() {
@@ -311,8 +338,11 @@
             }
 
             leaderboard.forEach((entry) => {
-                const div = document.createElement('div');
+                // 누르면 개인 분석 (보던 시즌 그대로)
+                const div = document.createElement('a');
                 div.className = 'rank-card';
+                div.href = `/players/${entry.stats.player_id}?season=${currentSeason || 'all'}`;
+                div.addEventListener('click', () => sessionStorage.setItem(FROM_RANKING_KEY, '1'));
 
                 let rankDisplay = `<span class="rank-num">#${entry.rank}</span>`;
                 if (entry.rank === 1) rankDisplay = '<span class="text-2xl w-8 text-center">🥇</span>';

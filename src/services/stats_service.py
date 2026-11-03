@@ -574,14 +574,17 @@ class StatsService:
         Returns:
             List[PlayerStats]: 정렬된 플레이어 통계 리스트
         """
-        stats_list = [
-            stats
-            for stats in StatsService.get_all_player_stats(db, season)
-            if stats.total_games > 0
-        ]
+        return StatsService.sort_leaderboard(
+            StatsService.get_all_player_stats(db, season)
+        )
 
-        # 정렬: 10경기 이상 > 승률 > 경기 수 > 승수 >
-        # 티츄 성공률 > 라지티츄 성공률
+    @staticmethod
+    def sort_leaderboard(stats: List[PlayerStats]) -> List[PlayerStats]:
+        """경기한 사람만 랭킹 순서로 (랭킹 화면·개인 분석 순위·메달 공통)
+
+        정렬: 10경기 이상 > 승률 > 경기 수 > 승수 > 티츄 성공률 > 라지티츄 성공률
+        """
+        stats_list = [item for item in stats if item.total_games > 0]
         stats_list.sort(
             key=lambda x: (
                 -(x.total_games >= 10),
@@ -592,5 +595,4 @@ class StatsService:
                 -x.grand_success_rate,  # 라지티츄 성공률 내림차순
             )
         )
-
         return stats_list
