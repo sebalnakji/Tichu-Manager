@@ -259,8 +259,30 @@
 
 {% block extra_scripts %}
 <script>
+    // 점수판 승리 창 "팀 섞기"로 넘어온 4명 (한 번 쓰고 지움)
+    const RESHUFFLE_KEY = 'tichu_reshuffle';
+    let reshufflePending = false;
+
+    function takeReshuffleIds() {
+        try {
+            const ids = JSON.parse(sessionStorage.getItem(RESHUFFLE_KEY));
+            sessionStorage.removeItem(RESHUFFLE_KEY);
+            return Array.isArray(ids) && ids.length === 4 ? ids : null;
+        } catch (e) { return null; }
+    }
+
+    // 4명을 선택 상태로 만들고 매치업 창 띄우기 (로그인 전이면 로그인 후)
+    function applyReshuffle(ids) {
+        if (!ids || !ids.every(id => allPlayersData.some(p => p.id === id))) return;
+        selectedPlayers = [...ids];
+        updateProgress(); renderAllPlayers(); renderEmptySlots();
+        if (AuthManager.isAuthenticated()) assignTeams();
+        else reshufflePending = true;
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
-        loadPlayers();
+        const reshuffleIds = takeReshuffleIds();
+        loadPlayers().then(() => applyReshuffle(reshuffleIds));
         updateUIByAuthState();
         setupEventListeners();
         renderEmptySlots();
@@ -270,6 +292,7 @@
                 const name = data.player_name || '관리자';
                 showToast(`${name}님, 환영합니다!`);
                 updateUIByAuthState();
+                if (reshufflePending) { reshufflePending = false; assignTeams(); }
             });
         }
     });

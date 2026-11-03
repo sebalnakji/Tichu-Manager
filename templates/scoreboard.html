@@ -437,7 +437,10 @@
                 </div>
             </div>
             <div class="space-y-3">
-                <button onclick="rematch()" class="victory-btn-main">🔄 재대결 (팀 유지)</button>
+                <div class="flex gap-3">
+                    <button onclick="rematch()" class="victory-btn-main rematch-btn flex-1">🔄 팀 유지</button>
+                    <button onclick="reshuffleRematch()" class="victory-btn-main rematch-btn flex-1">🔀 팀 섞기</button>
+                </div>
                 <div class="flex gap-3">
                     <button onclick="closeVictoryModal()" class="victory-btn-sub">수정</button>
                     <button onclick="goHome()" class="victory-btn-sub">홈</button>
@@ -1166,15 +1169,37 @@
 
     function closeVictoryModal() { document.getElementById('victory-modal').classList.add('hidden'); }
 
+    // 재대결 버튼 두 번 눌림 방지
+    function setRematchLocked(locked) {
+        document.querySelectorAll('.rematch-btn').forEach(btn => {
+            btn.disabled = locked;
+            btn.style.opacity = locked ? '0.6' : '';
+        });
+    }
+
+    // 팀 유지: 같은 팀으로 바로 새 게임 (현재 방 전적 이어서)
     async function rematch() {
-        let stats = JSON.parse(sessionStorage.getItem(SESSION_KEY));
-        if (matchData.winner_team === 'A') stats.team_a_wins++; else stats.team_b_wins++;
-        stats.total_games++;
-        sessionStorage.setItem(SESSION_KEY, JSON.stringify(stats));
+        setRematchLocked(true);
         try {
             const res = await fetch('/api/matches/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ team_a_ids: matchData.team_a_ids, team_b_ids: matchData.team_b_ids }) });
-            window.location.href = `/scoreboard/${(await res.json()).id}`;
-        } catch (e) { alert('실패'); }
+            if (!res.ok) throw new Error();
+            const newId = (await res.json()).id;
+            let stats = JSON.parse(sessionStorage.getItem(SESSION_KEY));
+            if (matchData.winner_team === 'A') stats.team_a_wins++; else stats.team_b_wins++;
+            stats.total_games++;
+            sessionStorage.setItem(SESSION_KEY, JSON.stringify(stats));
+            window.location.href = `/scoreboard/${newId}`;
+        } catch (e) { alert('실패'); setRematchLocked(false); }
+    }
+
+    // 뒤로 가기로 돌아왔을 때(bfcache) 잠긴 재대결 버튼 풀기
+    window.addEventListener('pageshow', (e) => { if (e.persisted) setRematchLocked(false); });
+
+    // 팀 섞기: 같은 4명으로 팀 선택 화면의 매치업 창(랜덤 배정)으로 이동
+    function reshuffleRematch() {
+        setRematchLocked(true);
+        sessionStorage.setItem('tichu_reshuffle', JSON.stringify([...matchData.team_a_ids, ...matchData.team_b_ids]));
+        window.location.href = '/team-selection';
     }
 
     function showExitModal() { document.getElementById('exit-modal').classList.remove('hidden'); }
