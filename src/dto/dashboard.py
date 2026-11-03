@@ -37,7 +37,8 @@ class PersonRecord(BaseModel):
 
 
 class PeopleRecords(BaseModel):
-    # 5판 이상 중 승률 50% 초과 최고(😋 맛집 / 💞 베프), 50% 미만 최저(😈 천적 / 💔 악연)
+    # 10판 이상 중 승패 차이(승 − 패)가 가장 큰 +(😋 맛집 / 💞 베프), 가장 작은 −(😈 천적 / 💔 악연)
+    # 동점이면 승률, 그다음 판 수
     best: Optional[PersonRecord] = None
     worst: Optional[PersonRecord] = None
     people: List[PersonRecord]  # 많이 만난 순 → 승률 높은 순

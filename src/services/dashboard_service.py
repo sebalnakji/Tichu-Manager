@@ -28,7 +28,7 @@ from services.score_service import ScoreService
 from services.stats_service import StatsService
 
 MEDAL_RANKS = 3            # 끝난 시즌 최종 1~3위에 메달
-HIGHLIGHT_MIN_GAMES = 5    # 맛집·천적·베프·악연은 5판 이상 중에서
+HIGHLIGHT_MIN_GAMES = 10   # 맛집·천적·베프·악연은 10판 이상 중에서 (랭킹 정식 순위 기준과 같음)
 
 
 class DashboardService:
@@ -71,9 +71,20 @@ class DashboardService:
         ratio = lambda r: r.wins / r.games
         records.sort(key=lambda r: (-r.games, -ratio(r), r.name))
 
+        # 맛집·베프 / 천적·악연: 10판 이상 중 승패 차이(승 − 패)가 가장 큰 / 작은 사람
+        # 동점이면 승률 높은 / 낮은 쪽, 그래도 같으면 더 많이 만난 쪽
         eligible = [r for r in records if r.games >= HIGHLIGHT_MIN_GAMES]
-        best = max((r for r in eligible if r.wins * 2 > r.games), key=lambda r: (ratio(r), r.games), default=None)
-        worst = min((r for r in eligible if r.wins * 2 < r.games), key=lambda r: (ratio(r), -r.games), default=None)
+        net = lambda r: r.wins - r.losses
+        best = max(
+            (r for r in eligible if net(r) > 0),
+            key=lambda r: (net(r), ratio(r), r.games),
+            default=None,
+        )
+        worst = min(
+            (r for r in eligible if net(r) < 0),
+            key=lambda r: (net(r), ratio(r), -r.games),
+            default=None,
+        )
         return PeopleRecords(best=best, worst=worst, people=records)
 
     @staticmethod

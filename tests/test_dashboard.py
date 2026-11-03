@@ -76,24 +76,24 @@ def test_opponent_records_favorite_and_nemesis(client, db, player_ids, monkeypat
     set_today(monkeypatch, date(2026, 11, 3))
     p = player_ids
     day = date(2026, 5, 1)
-    add_matches(db, day, p[:2], p[2:], ["A"] * 5 + ["B"])                     # 상대 p2, p3: 5승 1패
-    add_matches(db, day, [p[0], p[2]], [p[1], p[3]], ["B"] * 4 + ["A"])       # 상대 p1, p3: 1승 4패
+    add_matches(db, day, p[:2], p[2:], (["A"] * 5 + ["B"]) * 2)               # 상대 p2, p3: 10승 2패
+    add_matches(db, day, [p[0], p[2]], [p[1], p[3]], (["B"] * 4 + ["A"]) * 2) # 상대 p1, p3: 2승 8패 (딱 10판)
 
     h2h = client.get(f"/api/stats/player/{p[0]}/dashboard", params={"season": 1}).json()["opponents"]
 
     rows = {r["player_id"]: (r["games"], r["wins"], r["losses"], r["win_rate"]) for r in h2h["people"]}
-    assert rows == {p[3]: (11, 6, 5, 55), p[2]: (6, 5, 1, 83), p[1]: (5, 1, 4, 20)}
+    assert rows == {p[3]: (22, 12, 10, 55), p[2]: (12, 10, 2, 83), p[1]: (10, 2, 8, 20)}
     assert [r["player_id"] for r in h2h["people"]] == [p[3], p[2], p[1]]  # 많이 만난 순
-    assert h2h["best"]["player_id"] == p[2]   # 😋 맛집: 5판 이상, 50% 초과 중 최고
-    assert h2h["worst"]["player_id"] == p[1]    # 😈 천적: 5판 이상, 50% 미만 중 최저
+    assert h2h["best"]["player_id"] == p[2]   # 😋 맛집: 10판 이상, 승패 차이 최대
+    assert h2h["worst"]["player_id"] == p[1]    # 😈 천적: 10판 이상(딱 10판 포함), 승패 차이 최소
 
 
 @pytest.mark.parametrize(
     "winners",
     [
-        ["A", "B"] * 3,  # 상대 p2, p3: 3승 3패 = 정확히 50%
-        ["A"] * 4,       # 상대 p2, p3: 4승 0패지만 5판 미만
-        ["B"] * 4,       # 0승 4패지만 5판 미만
+        ["A", "B"] * 5,  # 상대 p2, p3: 5승 5패 = 정확히 50%
+        ["A"] * 9,       # 상대 p2, p3: 9승 0패지만 10판 미만
+        ["B"] * 9,       # 0승 9패지만 10판 미만
     ],
 )
 def test_no_highlight_at_fifty_percent_or_under_five_games(client, db, player_ids, monkeypatch, winners):
@@ -153,17 +153,17 @@ def test_partner_records_best_friend_and_bad_blood(client, db, player_ids, monke
     set_today(monkeypatch, date(2026, 11, 3))
     p = player_ids
     day = date(2026, 5, 1)
-    add_matches(db, day, p[:2], p[2:], ["A"] * 5 + ["B"])                 # p1과 같은 팀: 5승 1패
-    add_matches(db, day, [p[0], p[2]], [p[1], p[3]], ["B"] * 4 + ["A"])   # p2와 같은 팀: 1승 4패
+    add_matches(db, day, p[:2], p[2:], (["A"] * 5 + ["B"]) * 2)               # p1과 같은 팀: 10승 2패
+    add_matches(db, day, [p[0], p[2]], [p[1], p[3]], (["B"] * 4 + ["A"]) * 2) # p2와 같은 팀: 2승 8패 (딱 10판)
     add_matches(db, day, [p[0], p[3]], [p[1], p[2]], ["A", "B"])          # p3와 같은 팀: 1승 1패
 
     partners = client.get(f"/api/stats/player/{p[0]}/dashboard", params={"season": 1}).json()["partners"]
 
     rows = {r["player_id"]: (r["games"], r["wins"], r["losses"], r["win_rate"]) for r in partners["people"]}
-    assert rows == {p[1]: (6, 5, 1, 83), p[2]: (5, 1, 4, 20), p[3]: (2, 1, 1, 50)}
+    assert rows == {p[1]: (12, 10, 2, 83), p[2]: (10, 2, 8, 20), p[3]: (2, 1, 1, 50)}
     assert [r["player_id"] for r in partners["people"]] == [p[1], p[2], p[3]]  # 같이한 판 많은 순
-    assert partners["best"]["player_id"] == p[1]   # 💞 베프: 5판 이상, 팀 승률 50% 초과 중 최고
-    assert partners["worst"]["player_id"] == p[2]  # 💔 악연: 5판 이상, 50% 미만 중 최저
+    assert partners["best"]["player_id"] == p[1]   # 💞 베프: 10판 이상, 같은 팀 승패 차이 최대
+    assert partners["worst"]["player_id"] == p[2]  # 💔 악연: 10판 이상, 같은 팀 승패 차이 최소
     assert all(r["player_id"] != p[0] for r in partners["people"])  # 나 자신은 없음
 
 
@@ -253,3 +253,47 @@ def test_season_records_none_without_games(client, db, player_ids, monkeypatch):
     set_today(monkeypatch, date(2026, 11, 3))
     body = client.get(f"/api/stats/player/{player_ids[0]}/dashboard").json()
     assert body["games"] == 0 and body["records"] is None
+
+
+def test_highlights_pick_by_net_wins_then_win_rate(client, db, player_ids, monkeypatch):
+    """맛집·천적은 승률이 아니라 승패 차이로, 동점이면 승률로"""
+    from models.models import Player
+    set_today(monkeypatch, date(2026, 11, 3))
+    extra = [Player(name=f"nw-{i}", code=f"nw-code-{i}", profile_url="") for i in range(4)]
+    db.add_all(extra)
+    db.commit()
+    me, partner = player_ids[0], player_ids[1]
+    a, b, c, d = player_ids[2], player_ids[3], extra[0].id, extra[1].id
+    e, f = extra[2].id, extra[3].id
+    day = date(2026, 6, 1)
+    # 상대 a·b: 12승 6패 (+6, 67%) / 상대 c·d: 7승 3패 (+4, 70%) → 승률은 c·d가 높지만 맛집은 a·b
+    add_matches(db, day, [me, partner], [a, b], ["A"] * 12 + ["B"] * 6)
+    add_matches(db, day, [me, partner], [c, d], ["A"] * 7 + ["B"] * 3)
+    # 상대 e·f: 10승 4패 (+6, 71%) → a·b와 승패 차이 동점, 승률이 더 높으니 맛집은 e·f
+    add_matches(db, day, [me, partner], [e, f], ["A"] * 10 + ["B"] * 4)
+
+    opponents = client.get(f"/api/stats/player/{me}/dashboard").json()["opponents"]
+    assert opponents["best"]["player_id"] in (e, f)
+    assert (opponents["best"]["wins"], opponents["best"]["losses"]) == (10, 4)
+
+    # 상대 a 쪽에서 보면 나(와 파트너)에게 6승 12패(−6) → 천적
+    worst = client.get(f"/api/stats/player/{a}/dashboard").json()["opponents"]["worst"]
+    assert worst["player_id"] in (me, partner)
+    assert (worst["wins"], worst["losses"]) == (6, 12)
+
+
+def test_highlight_prefers_bigger_net_over_higher_rate(client, db, player_ids, monkeypatch):
+    """7승 3패(+4, 70%)보다 12승 6패(+6, 67%)가 맛집"""
+    from models.models import Player
+    set_today(monkeypatch, date(2026, 11, 3))
+    extra = [Player(name=f"nr-{i}", code=f"nr-code-{i}", profile_url="") for i in range(2)]
+    db.add_all(extra)
+    db.commit()
+    me, partner, a, b = player_ids
+    add_matches(db, date(2026, 6, 1), [me, partner], [a, b], ["A"] * 12 + ["B"] * 6)
+    add_matches(db, date(2026, 6, 2), [me, partner], [extra[0].id, extra[1].id], ["A"] * 7 + ["B"] * 3)
+
+    best = client.get(f"/api/stats/player/{me}/dashboard").json()["opponents"]["best"]
+    assert best["player_id"] in (a, b)
+    assert (best["wins"], best["losses"]) == (12, 6)
+
