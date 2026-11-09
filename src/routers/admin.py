@@ -14,6 +14,7 @@ from core.properties import settings
 from core.logging_config import get_logger
 from models.models import Player, Match, MatchStats
 from dto.player import PlayerResponse
+from services import match_trash_service as match_trash
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -100,8 +101,9 @@ def reset_all_data(
         # 통계 삭제
         stats_count = db.query(MatchStats).delete()
 
-        # 매치 삭제
+        # 매치 삭제 (휴지통 기록 포함)
         matches_count = db.query(Match).delete()
+        match_trash.delete_trash_rows_without_match(db)
 
         # 플레이어 삭제
         players_count = db.query(Player).delete()
@@ -132,7 +134,13 @@ def get_recent_matches(
     """
     최근 매치 기록 조회 (관리자 전용)
     """
-    matches = db.query(Match).order_by(Match.play_date.desc()).limit(limit).all()
+    matches = (
+        db.query(Match)
+        .filter(Match.status != match_trash.DELETED_STATUS)
+        .order_by(Match.play_date.desc())
+        .limit(limit)
+        .all()
+    )
 
     result = []
     for match in matches:
@@ -151,6 +159,18 @@ def get_recent_matches(
     return result
 
 
+@router.get("/matches/trash")
+def get_trash_matches(
+        db: Session = Depends(get_db),
+        _: bool = Depends(verify_admin)
+):
+    """
+    휴지통 목록 (관리자 전용): 최근 삭제 순, 카드마다 `expires_in_days`(영구 삭제까지 남은 날)
+    7일 지난 판은 먼저 영구 삭제
+    """
+    return match_trash.list_trash(db)
+
+
 @router.delete("/matches/{match_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_match_by_admin(
         match_id: int,
@@ -158,23 +178,56 @@ def delete_match_by_admin(
         _: bool = Depends(verify_admin)
 ):
     """
-    특정 매치 삭제 (관리자 전용)
-    잘못된 기록 수정 목록의 [삭제]. 그 판의 티츄 기록도 함께 삭제
-    (DB 연쇄 삭제에 기대지 않음: 로컬 SQLite는 외래 키 연쇄가 꺼져 있음)
+    판 삭제 = 휴지통으로 (관리자 전용, 잘못된 기록 수정 목록의 [삭제])
+    7일 동안 보관하며 되돌릴 수 있음. 끝난 판만 가능(진행 중 409), 없거나 이미 휴지통이면 404
     """
-    match = db.query(Match).filter(Match.id == match_id).first()
+    match_trash.purge_expired(db)
+    match = db.query(Match).filter(
+        Match.id == match_id, Match.status != match_trash.DELETED_STATUS
+    ).first()
 
     if not match:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"매치 ID {match_id}를 찾을 수 없습니다."
         )
+    if match.status != "FINISHED":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="끝난 경기만 삭제할 수 있습니다."
+        )
 
-    db.query(MatchStats).filter(MatchStats.match_id == match_id).delete(synchronize_session=False)
-    db.delete(match)
+    match_trash.move_to_trash(db, match)
     db.commit()
 
-    logger.info(f"관리자: 매치 삭제 - ID {match_id}")
+    logger.info(f"관리자: 매치 휴지통으로 - ID {match_id}")
+    return None
+
+
+@router.post("/matches/{match_id}/restore", status_code=status.HTTP_204_NO_CONTENT)
+def restore_match_by_admin(
+        match_id: int,
+        db: Session = Depends(get_db),
+        _: bool = Depends(verify_admin)
+):
+    """
+    휴지통 판 되돌리기 (관리자 전용): 다시 끝난 판으로. 휴지통에 없으면(7일 지나 영구 삭제 포함) 404
+    """
+    match_trash.purge_expired(db)
+    match = db.query(Match).filter(
+        Match.id == match_id, Match.status == match_trash.DELETED_STATUS
+    ).first()
+
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"휴지통에서 매치 ID {match_id}를 찾을 수 없습니다."
+        )
+
+    match_trash.restore(db, match)
+    db.commit()
+
+    logger.info(f"관리자: 매치 되돌리기 - ID {match_id}")
     return None
 
 
@@ -248,6 +301,8 @@ def reset_data(
             deleted['matches'] = delete_matches(season)
         if table in ('players', 'all'):
             deleted['players'] = delete_players(season)
+        if 'matches' in deleted:
+            match_trash.delete_trash_rows_without_match(db)
 
         db.commit()
 

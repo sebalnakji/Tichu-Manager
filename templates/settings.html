@@ -310,7 +310,15 @@
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
         </div>
+        <!-- 탭: 완료된 경기 / 휴지통 (설정 "유저 관리 | 데이터 관리" 탭과 같은 모양) -->
+        <div class="px-4 pt-4 shrink-0">
+            <div class="s-tab-bar p-1 rounded-xl flex">
+                <button id="match-tab-list" onclick="switchMatchEditTab('list')" class="flex-1 min-h-[44px] py-2.5 text-sm font-bold rounded-lg transition-all s-tab-active shadow-sm">📋 완료된 경기</button>
+                <button id="match-tab-trash" onclick="switchMatchEditTab('trash')" class="flex-1 min-h-[44px] py-2.5 text-sm font-bold rounded-lg transition-all s-tab-inactive">🗑️ 휴지통<span id="trash-count" class="hidden ml-1"></span></button>
+            </div>
+        </div>
         <div id="match-edit-list" class="p-4 space-y-3 overflow-y-auto flex-1"></div>
+        <div id="match-trash-list" class="hidden p-4 space-y-3 overflow-y-auto flex-1"></div>
     </div>
 </div>
 
@@ -650,6 +658,23 @@
     // ── 기록 수정 ─────────────────────────────────────
     const MATCH_EDIT_PAGE_SIZE = 10;
     let matchEditState = null; // { lastId, done, loading, observer } — 목록을 열 때마다 새로 생성
+    let matchEditListStale = false; // 휴지통에서 되돌린 판이 있으면 완료된 경기 탭을 다시 불러옴
+    let trashRequestId = 0; // 휴지통 응답이 뒤바뀌어 도착하면 마지막 요청만 반영
+
+    // 탭 전환: 설정 관리자 탭과 같은 활성/비활성 모양
+    function switchMatchEditTab(tab) {
+        const isTrash = tab === 'trash';
+        [['match-tab-list', !isTrash], ['match-tab-trash', isTrash]].forEach(([id, active]) => {
+            const btn = document.getElementById(id);
+            btn.classList.toggle('s-tab-active', active);
+            btn.classList.toggle('shadow-sm', active);
+            btn.classList.toggle('s-tab-inactive', !active);
+        });
+        document.getElementById('match-edit-list').classList.toggle('hidden', isTrash);
+        document.getElementById('match-trash-list').classList.toggle('hidden', !isTrash);
+        if (isTrash) loadTrash(true);
+        else if (matchEditListStale) resetMatchEditList();
+    }
 
     function showMatchEditModal() {
         const modal = document.getElementById('match-edit-modal');
@@ -660,9 +685,15 @@
             inner.style.transition = 'transform 0.3s ease-out';
             inner.style.transform = 'translateY(0)';
         });
-        const list = document.getElementById('match-edit-list');
+        switchMatchEditTab('list');
+        resetMatchEditList();
+        loadTrash(false); // 휴지통 개수만 먼저 표시
+    }
 
-        // 목록을 열 때마다 처음 10경기부터 새로 불러온다
+    // 목록을 처음 10경기부터 새로 불러온다 (창을 열 때, 되돌리기 후 완료된 경기 탭으로 올 때)
+    function resetMatchEditList() {
+        const list = document.getElementById('match-edit-list');
+        matchEditListStale = false;
         if (matchEditState?.observer) matchEditState.observer.disconnect();
         list.innerHTML = '<div id="match-edit-sentinel" class="min-h-[44px] flex flex-col items-center justify-center gap-2 py-4 text-sm s-text-muted"></div>';
         const sentinel = document.getElementById('match-edit-sentinel');
@@ -756,10 +787,10 @@
         return item;
     }
 
-    // 잘못된 판 통째로 삭제 (티츄 기록 포함, 되돌릴 수 없음)
+    // 잘못된 판 삭제 = 휴지통으로 (7일 보관, 그동안 되돌리기 가능)
     async function deleteMatch(match, item) {
         const summary = `${match.play_date}\n${match.team_a_names.join(', ')} ${match.score_a} : ${match.score_b} ${match.team_b_names.join(', ')}`;
-        if (!confirm(`${summary}\n\n이 판을 삭제하시겠습니까?\n되돌릴 수 없습니다.`)) return;
+        if (!confirm(`${summary}\n\n이 판을 삭제하시겠습니까?\n휴지통에 7일간 보관되며 그동안 되돌릴 수 있습니다.`)) return;
         try {
             const adminCode = AuthManager.getAdminCode();
             const response = await fetch(`/api/admin/matches/${match.id}`, { method: 'DELETE', headers: { 'Authorization': adminCode } });
@@ -771,9 +802,98 @@
             if (state?.done && list.children.length === 1) {
                 document.getElementById('match-edit-sentinel').innerHTML = '<p class="py-4">완료된 게임이 없습니다.</p>';
             }
-            alert('삭제되었습니다.');
+            loadTrash(false); // 휴지통 개수 갱신
+            alert('휴지통으로 옮겼습니다.');
         } catch (error) {
             alert('삭제 중 오류가 발생했습니다.');
+        }
+    }
+
+    // ── 휴지통 ──
+    function setTrashCount(count) {
+        const badge = document.getElementById('trash-count');
+        badge.textContent = count;
+        badge.classList.toggle('hidden', count === 0);
+    }
+
+    // 휴지통 목록 (render=false면 개수만 갱신). 7일 지난 판은 서버가 먼저 영구 삭제
+    async function loadTrash(render) {
+        const requestId = ++trashRequestId;
+        const list = document.getElementById('match-trash-list');
+        const message = html => `<div class="min-h-[44px] flex flex-col items-center justify-center gap-2 py-4 text-sm s-text-muted">${html}</div>`;
+        if (render) list.innerHTML = message('<p>불러오는 중...</p>');
+        try {
+            const response = await fetch('/api/admin/matches/trash', { headers: { 'Authorization': AuthManager.getAdminCode() } });
+            if (!response.ok) throw new Error('휴지통 로드 실패');
+            const matches = await response.json();
+            if (requestId !== trashRequestId) return;
+            setTrashCount(matches.length);
+            const trashShown = !list.classList.contains('hidden');
+            if (!render && !trashShown) return;
+            list.innerHTML = '';
+            if (matches.length === 0) list.innerHTML = message('<p class="py-4">휴지통이 비어 있습니다.</p>');
+            matches.forEach(match => list.appendChild(createTrashItem(match)));
+        } catch (error) {
+            if (requestId !== trashRequestId || !render) return;
+            list.innerHTML = message(`
+                <p class="text-red-500">목록을 불러오는데 실패했습니다.</p>
+                <button onclick="loadTrash(true)" class="min-h-[44px] px-5 rounded-xl font-bold s-text-primary" style="background-color:var(--bg-card-sub)">다시 시도</button>`);
+        }
+    }
+
+    // 휴지통 카드: 경기 카드와 같은 모양, 승리 배지 자리에 남은 날, 오른쪽 위 [되돌리기] (누를 수 없는 카드)
+    function createTrashItem(match) {
+        const item = document.createElement('div');
+        item.className = 'relative';
+        const days = match.expires_in_days;
+        const expireText = days === 0 ? '오늘 영구 삭제' : `${days}일 후 영구 삭제`;
+        const card = document.createElement('div');
+        card.className = 's-user-row flex flex-col p-4 rounded-2xl shadow-sm';
+        card.innerHTML = `
+            <div class="flex justify-between items-center mb-3 pr-20">
+                <span class="text-xs font-bold s-text-muted">${match.play_date}</span>
+                <span class="text-xs font-bold s-text-muted">${expireText}</span>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+                <div class="flex-1">
+                    <p class="text-xs font-bold mb-0.5" style="color:var(--team-a-text)">TEAM A</p>
+                    <p class="text-sm font-bold s-text-primary">${match.team_a_names.join(', ')}</p>
+                </div>
+                <p class="text-2xl font-black shrink-0" style="color:var(--team-a-score)">${match.score_a}</p>
+                <p class="text-sm font-bold s-text-muted shrink-0">vs</p>
+                <p class="text-2xl font-black shrink-0" style="color:var(--team-b-score)">${match.score_b}</p>
+                <div class="flex-1 text-right">
+                    <p class="text-xs font-bold mb-0.5" style="color:var(--team-b-text)">TEAM B</p>
+                    <p class="text-sm font-bold s-text-primary">${match.team_b_names.join(', ')}</p>
+                </div>
+            </div>`;
+        const restoreBtn = document.createElement('button');
+        restoreBtn.type = 'button';
+        restoreBtn.className = 'absolute top-1 right-2 min-w-[44px] min-h-[44px] px-2 flex items-center justify-center';
+        restoreBtn.setAttribute('aria-label', `${match.play_date} 판 되돌리기`);
+        restoreBtn.innerHTML = '<span class="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 px-3 py-1.5 rounded-xl text-xs font-bold transition">되돌리기</span>';
+        restoreBtn.onclick = () => restoreMatch(match, item, restoreBtn);
+        item.append(card, restoreBtn);
+        return item;
+    }
+
+    // 되돌리기: 확인창 없이 바로 (다시 삭제할 수 있으므로)
+    async function restoreMatch(match, item, button) {
+        button.disabled = true;
+        try {
+            const response = await fetch(`/api/admin/matches/${match.id}/restore`, { method: 'POST', headers: { 'Authorization': AuthManager.getAdminCode() } });
+            if (response.status === 404) {
+                alert('이미 영구 삭제된 경기입니다.');
+                loadTrash(true);
+                return;
+            }
+            if (!response.ok) throw new Error('되돌리기 실패');
+            item.remove();
+            matchEditListStale = true; // 완료된 경기 탭으로 가면 새로 불러와 다시 보이게
+            loadTrash(true);
+        } catch (error) {
+            button.disabled = false;
+            alert('되돌리기 중 오류가 발생했습니다.');
         }
     }
     function closeMatchEditModal() { document.getElementById('match-edit-modal').classList.add('hidden'); }

@@ -16,6 +16,7 @@ from services.team_service import TeamService
 from services.stats_service import StatsService
 from services.score_service import ScoreService
 from services.history_service import HistoryService
+from services import match_trash_service as match_trash
 from dto.history import HistoryPageResponse, HistoryPlayerOption
 from dto.match import (
     TeamAssignment,
@@ -179,38 +180,7 @@ def get_finished_matches(
     if before_id is not None:
         query = query.filter(Match.id < before_id)
     matches = query.order_by(Match.id.desc()).limit(limit).all()
-
-    player_ids = {
-        player_id
-        for match in matches
-        for player_id in match.team_a_ids + match.team_b_ids
-    }
-    players = (
-        db.query(Player).filter(Player.id.in_(player_ids)).all()
-        if player_ids
-        else []
-    )
-    player_names = {player.id: player.name for player in players}
-
-    result = []
-    for match in matches:
-        result.append({
-            "id": match.id,
-            "play_date": match.play_date.isoformat(),
-            "team_a_names": [
-                player_names.get(player_id, "알 수 없음")
-                for player_id in match.team_a_ids
-            ],
-            "team_b_names": [
-                player_names.get(player_id, "알 수 없음")
-                for player_id in match.team_b_ids
-            ],
-            "score_a": match.score_a,
-            "score_b": match.score_b,
-            "winner_team": match.winner_team
-        })
-
-    return result
+    return match_trash.match_cards(db, matches)
 
 
 def _parse_player_ids(raw: Optional[str]) -> List[int]:
@@ -269,11 +239,16 @@ def get_ongoing_matches(player_id: int, db: Session = Depends(get_db)):
     - 그 매치가 PLAYING이고 해당 플레이어가 참여했으면 반환
     - 그렇지 않으면 빈 배열 반환
     """
-    # 가장 최근 매치 1개 조회
-    latest_match = db.query(Match).order_by(Match.id.desc()).first()
+    # 가장 최근 매치 1개 조회 (휴지통 판 제외)
+    latest_match = (
+        db.query(Match)
+        .filter(Match.status != match_trash.DELETED_STATUS)
+        .order_by(Match.id.desc())
+        .first()
+    )
 
-    # 매치가 없거나 가장 최근 매치가 완료된 경우
-    if not latest_match or latest_match.status == "FINISHED":
+    # 매치가 없거나 가장 최근 매치가 진행 중이 아닌 경우
+    if not latest_match or latest_match.status != "PLAYING":
         return []
 
     # 현재 플레이어가 이 게임에 참여했는지 확인
@@ -362,7 +337,9 @@ def get_match_detail(match_id: int, db: Session = Depends(get_db)):
     - 팀 승률
     - 라운드별 점수
     """
-    match = db.query(Match).filter(Match.id == match_id).first()
+    match = db.query(Match).filter(
+        Match.id == match_id, Match.status != match_trash.DELETED_STATUS
+    ).first()
     if not match:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -436,7 +413,7 @@ def add_round_score(
     """
     match = (
         db.query(Match)
-        .filter(Match.id == match_id)
+        .filter(Match.id == match_id, Match.status != match_trash.DELETED_STATUS)
         .with_for_update()
         .first()
     )
@@ -556,7 +533,7 @@ def replace_rounds(
     """
     match = (
         db.query(Match)
-        .filter(Match.id == match_id)
+        .filter(Match.id == match_id, Match.status != match_trash.DELETED_STATUS)
         .with_for_update()
         .first()
     )
@@ -642,7 +619,7 @@ def delete_round_score(match_id: int, round_number: int, db: Session = Depends(g
     """
     match = (
         db.query(Match)
-        .filter(Match.id == match_id)
+        .filter(Match.id == match_id, Match.status != match_trash.DELETED_STATUS)
         .with_for_update()
         .first()
     )
@@ -683,7 +660,9 @@ def reset_match(match_id: int, db: Session = Depends(get_db)):
     - 점수 0으로 초기화
     - 팀 구성 유지
     """
-    match = db.query(Match).filter(Match.id == match_id).first()
+    match = db.query(Match).filter(
+        Match.id == match_id, Match.status != match_trash.DELETED_STATUS
+    ).first()
     if not match:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

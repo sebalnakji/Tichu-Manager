@@ -18,7 +18,7 @@ os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["ENABLE_CLEANUP_SCHEDULER"] = "false"
 
 from core.database import Base  # noqa: E402
-from models.models import Match, MatchStats, Player  # noqa: E402,F401
+from models.models import DeletedMatch, Match, MatchStats, Player  # noqa: E402,F401
 
 
 @pytest.fixture

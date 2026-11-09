@@ -81,7 +81,7 @@ class Match(Base):
         String(20),
         default="PLAYING",
         nullable=False,
-        comment="게임 상태 (PLAYING/FINISHED)"
+        comment="게임 상태 (PLAYING/FINISHED/DELETED: 휴지통)"
     )
 
     def __repr__(self):
@@ -136,3 +136,18 @@ class MatchStats(Base):
 
     def __repr__(self):
         return f"<MatchStats(match_id={self.match_id}, player_id={self.player_id}, round={self.round_number})>"
+
+
+class DeletedMatch(Base):
+    """
+    휴지통: 삭제한 판(상태 DELETED)과 삭제 시각
+    7일 동안 되돌릴 수 있고, 지나면 판·티츄 기록과 함께 영구 삭제
+    기존 경기 테이블을 바꾸지 않으려고 따로 둔 표 (서버 시작 시 자동 생성)
+    """
+    __tablename__ = "tichu_deleted_matches"
+
+    match_id = Column(Integer, primary_key=True, autoincrement=False, comment="삭제한 매치 ID")
+    deleted_at = Column(DateTime, default=datetime.utcnow, nullable=False, comment="삭제 시각 (UTC)")
+
+    def __repr__(self):
+        return f"<DeletedMatch(match_id={self.match_id}, deleted_at={self.deleted_at})>"

@@ -8,6 +8,7 @@ from core import season as season_rules
 from core.database import SessionLocal
 from core.logging_config import get_logger
 from models.models import Match, MatchStats
+from services import match_trash_service as match_trash
 
 logger = get_logger(__name__)
 
@@ -16,10 +17,13 @@ def cleanup_unfinished_matches():
     """
     3일 이전의 미완료(PLAYING) 매치를 삭제한다.
     MatchStats는 CASCADE로 자동 삭제된다.
+    휴지통에서 7일 지난 판도 함께 영구 삭제한다 (휴지통 열기·판 삭제 때도 처리).
     매일 새벽 3시에 스케줄러에 의해 호출된다.
     """
     db = SessionLocal()
     try:
+        match_trash.purge_expired(db)
+
         cutoff_date = season_rules.today_kst() - timedelta(days=3)
 
         stale_matches = db.query(Match).filter(
