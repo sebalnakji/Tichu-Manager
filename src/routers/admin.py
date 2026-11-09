@@ -159,7 +159,8 @@ def delete_match_by_admin(
 ):
     """
     특정 매치 삭제 (관리자 전용)
-    잘못된 기록 수정용
+    잘못된 기록 수정 목록의 [삭제]. 그 판의 티츄 기록도 함께 삭제
+    (DB 연쇄 삭제에 기대지 않음: 로컬 SQLite는 외래 키 연쇄가 꺼져 있음)
     """
     match = db.query(Match).filter(Match.id == match_id).first()
 
@@ -169,6 +170,7 @@ def delete_match_by_admin(
             detail=f"매치 ID {match_id}를 찾을 수 없습니다."
         )
 
+    db.query(MatchStats).filter(MatchStats.match_id == match_id).delete(synchronize_session=False)
     db.delete(match)
     db.commit()
 

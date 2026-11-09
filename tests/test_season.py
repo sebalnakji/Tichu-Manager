@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from core import season as season_rules
 from core.database import get_db
 from core.properties import settings
-from models.models import Match, Player
+from models.models import Match, MatchStats, Player
 from routers.admin import router as admin_router
 from routers.matches import router as matches_router
 from routers.stats import router as stats_router
@@ -180,3 +180,40 @@ def test_admin_reset_deletes_only_that_season(client, db, player_ids, monkeypatc
 
     bad = client.request("DELETE", "/api/admin/reset", json={"table": "matches", "season": 9}, headers=headers)
     assert bad.status_code == 422
+
+
+# ── 잘못된 판 삭제 (설정 > 잘못된 기록 수정 [삭제]) ──
+
+def test_admin_delete_match_removes_its_tichu_stats_only(client, db, player_ids):
+    a, b = player_ids[:2], player_ids[2:]
+    wrong, kept = _finished(date(2026, 11, 1), a, b), _finished(date(2026, 11, 2), a, b)
+    db.add_all([wrong, kept])
+    db.commit()
+    db.add_all([
+        MatchStats(match_id=wrong.id, player_id=a[0], round_number=1, is_tichu_try=True),
+        MatchStats(match_id=kept.id, player_id=a[0], round_number=1, is_grand_try=True),
+    ])
+    db.commit()
+    wrong_id, kept_id = wrong.id, kept.id
+    headers = {"Authorization": settings.ADMIN_CODE}
+
+    response = client.delete(f"/api/admin/matches/{wrong_id}", headers=headers)
+    assert response.status_code == 204
+    db.expire_all()
+    assert [m.id for m in db.query(Match).all()] == [kept_id]
+    # 로컬 SQLite는 외래 키 연쇄가 꺼져 있어도 그 판의 티츄 기록까지 지워짐
+    assert [s.match_id for s in db.query(MatchStats).all()] == [kept_id]
+
+    assert client.delete(f"/api/admin/matches/{wrong_id}", headers=headers).status_code == 404
+
+
+def test_admin_delete_match_requires_admin(client, db, player_ids):
+    match = _finished(date(2026, 11, 1), player_ids[:2], player_ids[2:])
+    db.add(match)
+    db.commit()
+    match_id = match.id
+
+    assert client.delete(f"/api/admin/matches/{match_id}").status_code == 401
+    assert client.delete(f"/api/admin/matches/{match_id}", headers={"Authorization": "wrong"}).status_code == 403
+    db.expire_all()
+    assert db.query(Match).count() == 1

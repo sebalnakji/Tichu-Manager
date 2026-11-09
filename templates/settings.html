@@ -718,13 +718,16 @@
         }
     }
 
+    // 카드(누르면 점수판 수정) + 오른쪽 위 [삭제] (링크 밖에 두어 눌러도 이동하지 않음)
     function createMatchEditItem(match) {
         const isWinnerA = match.winner_team === 'A';
+        const item = document.createElement('div');
+        item.className = 'relative';
         const div = document.createElement('a');
         div.href = `/scoreboard/${match.id}?return_to=match-edit`;
         div.className = 's-user-row flex flex-col p-4 rounded-2xl shadow-sm active:scale-95 transition block';
         div.innerHTML = `
-            <div class="flex justify-between items-center mb-3">
+            <div class="flex justify-between items-center mb-3 pr-14">
                 <span class="text-xs font-bold s-text-muted">${match.play_date}</span>
                 <span class="text-xs font-bold px-2 py-0.5 rounded-full ${isWinnerA ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}">
                     ${isWinnerA ? 'TEAM A' : 'TEAM B'} 승리
@@ -743,7 +746,35 @@
                     <p class="text-sm font-bold s-text-primary">${match.team_b_names.join(', ')}</p>
                 </div>
             </div>`;
-        return div;
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'absolute top-1 right-2 min-w-[44px] min-h-[44px] px-2 flex items-center justify-center';
+        deleteBtn.setAttribute('aria-label', `${match.play_date} 판 삭제`);
+        deleteBtn.innerHTML = '<span class="bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 px-3 py-1.5 rounded-xl text-xs font-bold transition">삭제</span>';
+        deleteBtn.onclick = () => deleteMatch(match, item);
+        item.append(div, deleteBtn);
+        return item;
+    }
+
+    // 잘못된 판 통째로 삭제 (티츄 기록 포함, 되돌릴 수 없음)
+    async function deleteMatch(match, item) {
+        const summary = `${match.play_date}\n${match.team_a_names.join(', ')} ${match.score_a} : ${match.score_b} ${match.team_b_names.join(', ')}`;
+        if (!confirm(`${summary}\n\n이 판을 삭제하시겠습니까?\n되돌릴 수 없습니다.`)) return;
+        try {
+            const adminCode = AuthManager.getAdminCode();
+            const response = await fetch(`/api/admin/matches/${match.id}`, { method: 'DELETE', headers: { 'Authorization': adminCode } });
+            if (!response.ok) throw new Error('삭제 실패');
+            item.remove();
+            // 마지막 한 판까지 지워 목록이 비면 안내
+            const state = matchEditState;
+            const list = document.getElementById('match-edit-list');
+            if (state?.done && list.children.length === 1) {
+                document.getElementById('match-edit-sentinel').innerHTML = '<p class="py-4">완료된 게임이 없습니다.</p>';
+            }
+            alert('삭제되었습니다.');
+        } catch (error) {
+            alert('삭제 중 오류가 발생했습니다.');
+        }
     }
     function closeMatchEditModal() { document.getElementById('match-edit-modal').classList.add('hidden'); }
     // ───────────────────────────────────────────────────
